@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+attendance.db
+uploads/*
+exports/*
+*.log
