@@ -16,7 +16,7 @@ Flask + SQLAlchemy university attendance platform with PostgreSQL support and SQ
 - Recognition API with confidence tracking and AI/manual attendance source.
 - Audit logs.
 - CSV attendance report.
-- PostgreSQL through DATABASE_URL for persistent cloud deployment.
+- Production database migration is planned; the current deployed build continues to use SQLite. Do not treat Render's ephemeral filesystem as permanent production storage.
 
 ## Demo accounts
 Admin: admin / admin123
