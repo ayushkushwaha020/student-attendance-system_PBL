@@ -181,3 +181,95 @@ else:
     init()
 
 # Production upgrade staging enabled.
+
+# --- Production feature pack ---
+def upgrade_schema():
+    c=db()
+    c.executescript("""
+    CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY, user_id INTEGER, action TEXT, entity TEXT, entity_id INTEGER, detail TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS recognition_events(id INTEGER PRIMARY KEY, camera_id INTEGER, student_id INTEGER, lecture_id INTEGER, captured_at TEXT DEFAULT CURRENT_TIMESTAMP, confidence REAL, result TEXT, snapshot_path TEXT, review_status TEXT DEFAULT 'PENDING');
+    CREATE TABLE IF NOT EXISTS import_jobs(id INTEGER PRIMARY KEY, filename TEXT, doc_type TEXT, status TEXT, preview TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, imported_by INTEGER);
+    """)
+    c.commit(); c.close()
+
+def audit(action,entity="",entity_id=None,detail=""):
+    u=me()
+    c=db(); c.execute("insert into audit_logs(user_id,action,entity,entity_id,detail) values(?,?,?,?,?)",(u["id"] if u else None,action,entity,entity_id,detail)); c.commit(); c.close()
+
+@app.route("/lectures",methods=["GET","POST"])
+@need("ADMIN","TEACHER")
+def lecture_manager():
+    u=me(); c=db()
+    if request.method=="POST":
+        sid=int(request.form["subject_id"]); slot=int(request.form["lecture_no"])
+        teacher_id=u["teacher_id"] if u["role"]=="TEACHER" else (int(request.form.get("teacher_id")) if request.form.get("teacher_id") else None)
+        times=[("09:30","10:15"),("10:20","11:05"),("11:10","11:55"),("12:00","12:45"),("12:50","13:35"),("13:40","14:25"),("14:30","15:15"),("15:20","16:05"),("16:10","16:55")]
+        st,en=times[slot-1]
+        c.execute("insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date) values(?,?,?,?,?,?,?)",(sid,teacher_id,slot,request.form.get("course","BCA"),request.form.get("section","G"),request.form.get("room","222"),request.form["lecture_date"]))
+        audit("CREATE_LECTURE","lecture",c.execute("select last_insert_rowid()").fetchone()[0],"manual lecture")
+        c.commit(); flash("Lecture created.","success")
+    subjects=c.execute("select * from subjects order by code").fetchall()
+    teachers=c.execute("select * from teachers order by name").fetchall()
+    lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id order by l.lecture_date desc,l.lecture_no limit 100").fetchall()
+    c.close()
+    opts="".join(f'<option value="{s["id"]}">{s["code"]} - {s["name"]}</option>' for s in subjects)
+    tops="".join(f'<option value="{t["id"]}">{t["name"]}</option>' for t in teachers)
+    slots="".join(f'<option value="{i}">Slot {i} ({a}-{b})</option>' for i,(a,b) in enumerate([("09:30","10:15"),("10:20","11:05"),("11:10","11:55"),("12:00","12:45"),("12:50","13:35"),("13:40","14:25"),("14:30","15:15"),("15:20","16:05"),("16:10","16:55")],1))
+    rows="".join(f'<tr><td>{x["lecture_date"]}</td><td>{x["lecture_no"]}</td><td>{x["code"]}</td><td>{x["room"]}</td><td>{x["section"]}</td></tr>' for x in lectures)
+    teacher_field=f'<label>Teacher<select name="teacher_id">{tops}</select></label>' if u["role"]=="ADMIN" else ""
+    body=f'<div class="card"><div class="head"><h3>Add lecture manually</h3></div><form class="form" method="post"><label>Subject<select name="subject_id">{opts}</select></label><label>Date<input type="date" name="lecture_date" value="{datetime.now().date()}" required></label><label>Slot<select name="lecture_no">{slots}</select></label><label>Course<input name="course" value="BCA"></label><label>Section<input name="section" value="G"></label><label>Room<input name="room" value="222"></label>{teacher_field}<div><button class="btn primary">Create Lecture</button></div></form></div><div class="card"><div class="head"><h3>Lecture schedule</h3></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Room</th><th>Section</th></tr>{rows}</table></div></div>'
+    return page("Lecture Management",body)
+
+@app.route("/reports")
+@need("ADMIN")
+def reports():
+    c=db()
+    students=c.execute("select * from students order by name").fetchall()
+    rows=[]
+    for s in students:
+        total=c.execute("select count(*) from lectures where course=? and section=?",(s["course"],s["section"])).fetchone()[0]
+        present=c.execute("select count(*) from attendance where student_id=?",(s["id"],)).fetchone()[0]
+        pct=(present/total*100) if total else 0
+        rows.append(f'<tr><td>{s["name"]}</td><td>{s["enrollment_no"]}</td><td>{s["course"]}</td><td>{s["section"]}</td><td>{pct:.1f}%</td><td>{present}/{total}</td></tr>')
+    c.close()
+    return page("Attendance Reports",'<div class="hero"><div><span class="pill">REPORTING</span><h2>Overall attendance</h2><p class="muted">Export the current register as CSV.</p></div><a class="btn primary" href="/reports.csv">Export CSV</a></div><div class="card"><div class="table"><table><tr><th>Student</th><th>Enrollment</th><th>Course</th><th>Section</th><th>Attendance</th><th>Present/Total</th></tr>'+''.join(rows)+'</table></div></div>')
+
+@app.route("/reports.csv")
+@need("ADMIN")
+def reports_csv():
+    c=db(); out=io.StringIO(); w=csv.writer(out); w.writerow(["Student","Enrollment","Course","Section","Attendance Percent","Present","Total"])
+    for s in c.execute("select * from students order by name").fetchall():
+        total=c.execute("select count(*) from lectures where course=? and section=?",(s["course"],s["section"])).fetchone()[0]
+        present=c.execute("select count(*) from attendance where student_id=?",(s["id"],)).fetchone()[0]
+        w.writerow([s["name"],s["enrollment_no"],s["course"],s["section"],f"{(present/total*100 if total else 0):.1f}",present,total])
+    c.close(); data=io.BytesIO(out.getvalue().encode()); data.seek(0)
+    return send_file(data,mimetype="text/csv",as_attachment=True,download_name="attendance_report.csv")
+
+@app.route("/audit")
+@need("ADMIN")
+def audit_logs():
+    c=db(); logs=c.execute("select a.*,u.display_name from audit_logs a left join users u on u.id=a.user_id order by a.id desc limit 200").fetchall(); c.close()
+    rows="".join(f'<tr><td>{x["created_at"]}</td><td>{x["display_name"] or "System"}</td><td>{x["action"]}</td><td>{x["entity"]}</td><td>{x["detail"]}</td></tr>' for x in logs)
+    return page("Audit Logs",f'<div class="card"><div class="table"><table><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>{rows}</table></div></div>')
+
+@app.route("/recognition")
+@need("ADMIN")
+def recognition_review():
+    c=db(); events=c.execute("select r.*,s.name student_name,c.camera_name from recognition_events r left join students s on s.id=r.student_id left join cameras c on c.id=r.camera_id order by r.id desc limit 100").fetchall(); c.close()
+    rows="".join(f'<tr><td>{x["captured_at"]}</td><td>{x["camera_name"] or "—"}</td><td>{x["student_name"] or "UNKNOWN"}</td><td>{x["result"]}</td><td>{(str(round(x["confidence"],1))+"%") if x["confidence"] is not None else "—"}</td><td>{x["review_status"]}</td></tr>' for x in events)
+    return page("Recognition Review",f'<div class="hero"><div><span class="pill">REVIEW QUEUE</span><h2>Recognition events</h2><p class="muted">Uncertain matches stay UNKNOWN until reviewed.</p></div></div><div class="card"><div class="table"><table><tr><th>Time</th><th>Camera</th><th>Student</th><th>Result</th><th>Confidence</th><th>Review</th></tr>{rows or "<tr><td colspan=6>No recognition events.</td></tr>"}</table></div></div>')
+
+@app.route("/api/recognition",methods=["POST"])
+@need("ADMIN")
+def recognition_api():
+    data=request.get_json(silent=True) or {}
+    confidence=float(data.get("confidence",0)); sid=data.get("student_id"); lid=data.get("lecture_id"); cid=data.get("camera_id")
+    result="MATCH" if sid and confidence>=85 else "UNKNOWN"
+    c=db(); c.execute("insert into recognition_events(camera_id,student_id,lecture_id,confidence,result) values(?,?,?,?,?)",(cid,sid if result=="MATCH" else None,lid,confidence,result))
+    if result=="MATCH" and lid and sid:
+        lec=c.execute("select * from lectures where id=?",(lid,)).fetchone()
+        if lec and not c.execute("select id from attendance where student_id=? and lecture_id=?",(sid,lid)).fetchone():
+            c.execute("insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,confidence,note) values(?,?,?,?,?,?,?)",(sid,lec["subject_id"],lid,lec["lecture_date"],"AI_RECOGNITION",confidence,"Recognition API"))
+    c.commit(); c.close(); return {"ok":True,"result":result,"confidence":confidence}
+
+upgrade_schema()
