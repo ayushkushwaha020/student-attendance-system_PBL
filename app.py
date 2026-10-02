@@ -69,8 +69,8 @@ def page(title,body,**ctx):
     nav=""
     if u:
         nav=f'<aside class="side"><div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
-        if u["role"] in ("ADMIN","TEACHER"): nav+='<a href="/attendance">✓ Attendance</a>'
-        if u["role"]=="ADMIN": nav+='<a href="/import">⇧ PDF Import</a><a href="/students">♙ Students</a><a href="/cameras">◉ Cameras</a>'
+        if u["role"] in ("ADMIN","TEACHER"): nav+='<a href="/attendance">✓ Attendance</a><a href="/lectures">◷ Lectures</a>'
+        if u["role"]=="ADMIN": nav+='<a href="/import">⇧ PDF Import</a><a href="/students">♙ Students</a><a href="/lectures">◷ Lectures</a><a href="/cameras">◉ Cameras</a><a href="/recognition">◎ Recognition</a><a href="/reports">▥ Reports</a><a href="/audit">⌁ Audit Logs</a>'
         if u["role"]=="STUDENT": nav+='<a href="/student/attendance">▤ My Attendance</a>'
         nav+='<a href="/logout">↪ Logout</a></nav></aside>'
     flashes="".join(f'<div class="flash">{m}</div>' for m in [x[1] for x in []])
