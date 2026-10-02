@@ -1,36 +1,44 @@
 # AI-Based Student Attendance System
 
-Flask + SQLite university attendance application for the PBL project.
+Flask + SQLAlchemy university attendance platform with PostgreSQL support and SQLite local fallback.
 
 ## Included
-- Role-based login: Admin, Teacher, Student
-- Student overall/attendance history
-- Teacher-scoped attendance marking
-- Admin attendance control
-- Student directory
-- University camera management
-- PDF upload and text extraction/classification
-- Modern responsive dark dashboard UI
-- Render deployment configuration
+- One secure login page with automatic Admin / Teacher / Student role interface.
+- Password hashing and server-side role authorization.
+- Subject-wise and overall attendance.
+- Student attendance thresholds: 0–25 black, 25–50 red, 50–75 orange, 75–100 green.
+- Lecture identification by date, course, section, slot and room.
+- Teacher attendance override restricted to assigned lectures.
+- Admin attendance control and manual lecture creation.
+- Student directory and safe PDF import preview/confirmation.
+- University camera management with browser-compatible WebRTC/HLS preview.
+- Recognition review queue and conservative UNKNOWN handling.
+- Recognition API with confidence tracking and AI/manual attendance source.
+- Audit logs.
+- CSV attendance report.
+- PostgreSQL through DATABASE_URL for persistent cloud deployment.
 
 ## Demo accounts
-- Admin: admin / admin123
-- Teacher: teacher / teacher123
-- Student: student / student123
+Admin: admin / admin123
+Teacher: teacher / teacher123
+Student: student / student123
 
-## Run locally
-```bash
+Change demo credentials before real use.
+
+## Local
 python -m venv .venv
 pip install -r requirements.txt
 python app.py
-```
 
-Open http://127.0.0.1:5000
+## Render
+Start command: gunicorn app:app
 
-## Deploy
-The repository includes `render.yaml` for a Python/Gunicorn web service.
+Use a managed PostgreSQL DATABASE_URL for persistent production data.
 
-Note: SQLite is suitable for the demo/prototype. For persistent production data on a cloud deployment, move the database to a managed database or persistent storage.
+## AI/camera integration
+The application includes the attendance/recognition data model and API. The actual high-accuracy face engine should be connected to a calibrated university-camera pipeline. For high-quality recognition, use deep face embeddings (ArcFace/InsightFace style), multiple enrollment images, quality filtering, multi-frame verification and a validated threshold. Weak matches remain UNKNOWN.
 
-## Camera / recognition
-The camera-management interface stores authorized camera metadata. Browser-compatible WebRTC/HLS streaming and production-grade face-recognition inference require the university camera gateway and recognition runtime to be connected separately.
+RTSP camera streams are not directly playable by normal browsers; use an RTSP-to-WebRTC/HLS gateway.
+
+## PDF
+Text-based PDFs are parsed and shown in a confirmation preview. Image-only/scanned PDFs require OCR infrastructure before reliable import.
