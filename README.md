@@ -2,6 +2,10 @@
 
 Flask + SQLAlchemy university attendance platform with PostgreSQL support and SQLite local fallback.
 
+## Live Demo
+
+**Student Attendance System:** https://student-attendance-system-pbl.onrender.com
+
 ## Included
 - One secure login page with automatic Admin / Teacher / Student role interface.
 - Password hashing and server-side role authorization.
