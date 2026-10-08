@@ -1652,12 +1652,52 @@ def reports_csv():
 @need("ADMIN")
 def audit_logs():
     c=db()
-    logs=c.execute("select a.*,u.display_name from audit_logs a left join users u on u.id=a.user_id order by a.id desc limit 200").fetchall()
+    logs=c.execute("""select a.*,u.display_name,u.role from audit_logs a
+                     left join users u on u.id=a.user_id
+                     order by a.id desc limit 500""").fetchall()
     c.close()
-    rows="".join(f'<tr><td>{x["created_at"]}</td><td>{x["display_name"] or "System"}</td><td><b>{x["action"]}</b></td><td>{x["entity"] or "—"}</td><td>{x["detail"] or "—"}</td></tr>' for x in logs)
-    if not rows:
-        rows='<tr><td colspan="5" style="padding:28px;text-align:center;color:#8291aa">No audit events recorded yet. New logins, logouts, attendance saves, lecture changes and camera additions will appear here.</td></tr>'
-    return page("Audit Logs",f'<div class="hero"><div><span class="pill">SYSTEM ACTIVITY</span><h2>Audit Logs</h2><p class="muted">Security and administrative actions are recorded with date, user and details.</p></div><div class="overall-box"><div class="value">{len(logs)}</div><div class="label">RECENT EVENTS</div></div></div><div class="card"><div class="table"><table><tr><th>Time (IST)</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>{rows}</table></div></div>')
+
+    student_logs=[x for x in logs if x["role"]=="STUDENT"]
+    teacher_logs=[x for x in logs if x["role"]=="TEACHER"]
+    admin_logs=[x for x in logs if x["role"]=="ADMIN" or x["role"] is None]
+
+    def log_rows(items):
+        rows="".join(
+            f'<tr><td>{x["created_at"]}</td><td>{x["display_name"] or "System"}</td>'
+            f'<td><b>{x["action"]}</b></td><td>{x["entity"] or "—"}</td><td>{x["detail"] or "—"}</td></tr>'
+            for x in items
+        )
+        return rows or '<tr><td colspan="5" style="padding:28px;text-align:center;color:#8291aa">No logs recorded in this section yet.</td></tr>'
+
+    def section(title,subtitle,items,cls):
+        return f'''<div class="card audit-section {cls}">
+          <div class="head"><div><span class="pill">{title.upper()}</span><h3 style="margin:7px 0 3px">{title} Logs</h3>
+          <p class="muted small">{subtitle}</p></div><span class="pill">{len(items)} events</span></div>
+          <div class="table audit-table"><table><tr><th>Time (IST)</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>{log_rows(items)}</table></div>
+        </div>'''
+
+    body=f'''<div class="hero">
+      <div><span class="pill">SYSTEM ACTIVITY</span><h2>Audit Logs</h2>
+      <p class="muted">Activity is separated by account role for easier monitoring.</p></div>
+      <div class="overall-box"><div class="value">{len(logs)}</div><div class="label">TOTAL RECENT EVENTS</div></div>
+    </div>
+    <style>
+      .audit-sections{{display:grid;grid-template-columns:1fr;gap:18px}}
+      .audit-section{{overflow:hidden}}
+      .audit-section .head{{padding:18px 20px 12px}}
+      .audit-table{{max-height:430px;overflow:auto}}
+      .audit-table table{{min-width:760px}}
+      .audit-section.student{{border-color:#294b70}}
+      .audit-section.teacher{{border-color:#3d4b70}}
+      .audit-section.admin{{border-color:#59476e}}
+      @media(max-width:800px){{.audit-table{{max-height:360px}}}}
+    </style>
+    <div class="audit-sections">
+      {section("Students","Login, logout and student account activity.",student_logs,"student")}
+      {section("Teachers","Teacher login, attendance and lecture-management activity.",teacher_logs,"teacher")}
+      {section("Admin","Administrative, security, camera, import and system activity.",admin_logs,"admin")}
+    </div>'''
+    return page("Audit Logs",body)
 
 @app.route("/recognition")
 @need("ADMIN")
