@@ -289,7 +289,7 @@ def attendance():
             (selected_lecture["course"],selected_lecture["section"],selected_lecture["group_name"] or "")).fetchall()
     present_ids=set()
     if selected_lecture:
-        present_ids={r["student_id"] for r in c.execute("select student_id from attendance where lecture_id=? and source!='AUTO_ABSENT'",(selected_lecture["id"],)).fetchall()}
+        present_ids={r["student_id"] for r in c.execute("select student_id from attendance where lecture_id=? and source in ('TEACHER_OVERRIDE','ADMIN_OVERRIDE','AI_RECOGNITION')",(selected_lecture["id"],)).fetchall()}
     c.close()
     opts="".join(f'<option value="{l["id"]}">{l["lecture_date"]} · Slot {l["lecture_no"]} · {l["subject_name"]} · {l["start_time"] or ""}-{l["end_time"] or ""} · Room {l["room"]}</option>' for l in lectures)
     checks="".join(f'<label style="display:block;padding:7px"><input type="checkbox" name="student_id" value="{st["id"]}" {"checked" if st["id"] in present_ids else ""}> {st["name"]} <span class="muted">({st["enrollment_no"]})</span></label>' for st in students)
