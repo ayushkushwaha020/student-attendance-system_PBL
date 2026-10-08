@@ -331,7 +331,11 @@ def login():
                            where u.role='TEACHER' and upper(trim(replace(replace(replace(t.name,'Prof. Dr. ',''),'Dr. ',''),'Prof. ','')))=? and (s.teacher_id=t.id or exists (select 1 from lectures lx where lx.subject_id=s.id and lx.teacher_id=t.id)) and s.code=?""",
                         (username.upper(),password.upper())).fetchone()
         c.close()
-        if u: session["uid"]=u["id"]; return redirect(url_for("dashboard"))
+        if u:
+            session["uid"]=u["id"]
+            audit("LOGIN_SUCCESS","user",u["id"],"Successful "+u["role"]+" login")
+            return redirect(url_for("dashboard"))
+        audit("LOGIN_FAILED","user",None,"Failed login attempt for username: "+username)
         flash("Invalid credentials.","danger")
     return render_template_string("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>""" + CSS + """</style></head><body class="login"><form class="loginbox card" method="post"><div class="brand"><div class="logo"><img src="/static/attendai-logo.svg" alt="Sharda University Agra"></div><div><b>Sharda University Agra</b><small>Student Attendance System</small></div></div><h2>Sign in</h2><p class="muted">Role is loaded automatically from your account.</p><input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required><button>Sign in</button><p class="small muted" style="text-align:center;margin-top:16px">New student? <a href="/register" style="color:#8d9aff;font-weight:800">Register here</a></p></form></body></html>""")
 
@@ -395,7 +399,11 @@ def register():
     </form></body></html>""", error=error)
 
 @app.route("/logout")
-def logout(): session.clear(); return redirect(url_for("login"))
+def logout():
+    u=me()
+    if u: audit("LOGOUT","user",u["id"],"User logged out")
+    session.clear()
+    return redirect(url_for("login"))
 
 @app.route("/dashboard")
 @need()
@@ -521,7 +529,9 @@ def attendance():
             c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by) values(?,?,?,?,?,?)
                 on conflict(student_id,lecture_id,attendance_date) do update set subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by""",
                 (st["id"],selected["subject_id"],lecture_id,selected["lecture_date"],src,marked))
-        c.commit(); c.close(); flash("Attendance saved successfully.","success")
+        c.commit()
+        audit("SAVE_ATTENDANCE","lecture",lecture_id,"Attendance saved for "+str(len(students))+" students by "+u["display_name"])
+        c.close(); flash("Attendance saved successfully.","success")
         return redirect(url_for("attendance",lecture_id=lecture_id))
     if selected:
         # For an all-section lecture, show every student in the course/section.
@@ -718,7 +728,9 @@ def cameras():
         location=request.form["location"].strip()
         stream_url=request.form.get("url","").strip()
         c.execute("insert into cameras(camera_name,location,stream_url,authorized) values(?,?,?,1)",(name,location,stream_url))
+        camera_id=c.execute("select last_insert_rowid()").fetchone()[0]
         c.commit()
+        audit("ADD_CAMERA","camera",camera_id,"Added camera: "+name+" at "+location)
         flash("Camera added.","success")
     rows=c.execute("select * from cameras where lower(camera_name) not like '%room 222%' order by case when lower(camera_name)=? then 0 else 1 end,id desc",("login device camera",)).fetchall()
     c.commit()
@@ -1496,8 +1508,18 @@ def upgrade_schema():
     c.commit(); c.close()
 
 def audit(action,entity="",entity_id=None,detail=""):
-    u=me()
-    c=db(); c.execute("insert into audit_logs(user_id,action,entity,entity_id,detail) values(?,?,?,?,?)",(u["id"] if u else None,action,entity,entity_id,detail)); c.commit(); c.close()
+    c=None
+    try:
+        u=me(); c=db()
+        c.execute("insert into audit_logs(user_id,action,entity,entity_id,detail,created_at) values(?,?,?,?,?,?)",
+                  (u["id"] if u else None,action,entity,entity_id,detail,datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")))
+        c.commit(); c.close(); return True
+    except Exception as exc:
+        try:
+            if c: c.close()
+        except Exception: pass
+        app.logger.exception("Audit logging failed: %s",exc)
+        return False
 
 @app.route("/lectures",methods=["GET","POST"])
 @need("ADMIN","TEACHER")
@@ -1629,9 +1651,13 @@ def reports_csv():
 @app.route("/audit")
 @need("ADMIN")
 def audit_logs():
-    c=db(); logs=c.execute("select a.*,u.display_name from audit_logs a left join users u on u.id=a.user_id order by a.id desc limit 200").fetchall(); c.close()
-    rows="".join(f'<tr><td>{x["created_at"]}</td><td>{x["display_name"] or "System"}</td><td>{x["action"]}</td><td>{x["entity"]}</td><td>{x["detail"]}</td></tr>' for x in logs)
-    return page("Audit Logs",f'<div class="card"><div class="table"><table><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>{rows}</table></div></div>')
+    c=db()
+    logs=c.execute("select a.*,u.display_name from audit_logs a left join users u on u.id=a.user_id order by a.id desc limit 200").fetchall()
+    c.close()
+    rows="".join(f'<tr><td>{x["created_at"]}</td><td>{x["display_name"] or "System"}</td><td><b>{x["action"]}</b></td><td>{x["entity"] or "—"}</td><td>{x["detail"] or "—"}</td></tr>' for x in logs)
+    if not rows:
+        rows='<tr><td colspan="5" style="padding:28px;text-align:center;color:#8291aa">No audit events recorded yet. New logins, logouts, attendance saves, lecture changes and camera additions will appear here.</td></tr>'
+    return page("Audit Logs",f'<div class="hero"><div><span class="pill">SYSTEM ACTIVITY</span><h2>Audit Logs</h2><p class="muted">Security and administrative actions are recorded with date, user and details.</p></div><div class="overall-box"><div class="value">{len(logs)}</div><div class="label">RECENT EVENTS</div></div></div><div class="card"><div class="table"><table><tr><th>Time (IST)</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>{rows}</table></div></div>')
 
 @app.route("/recognition")
 @need("ADMIN")
