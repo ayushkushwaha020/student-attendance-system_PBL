@@ -768,16 +768,16 @@ def camera_view(camera_id):
         <div class="camera-actions"><button class="btn primary" id="startCamera">◉ Start Camera</button><button class="btn" id="stopCamera" disabled>■ Stop</button></div>
         <div id="cameraStatus" class="camera-status">Click Start Camera to use this login device camera.</div>
         <script>
-        (()=>{{
+        (()=>{
           const video=document.getElementById("cameraVideo"),start=document.getElementById("startCamera"),stop=document.getElementById("stopCamera"),status=document.getElementById("cameraStatus");let stream=null;
-          start.onclick=async()=>{{try{{
+          start.onclick=async()=>{try{
             if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) throw new Error("Camera API unavailable");
-            stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode:"user",width:{{ideal:1280}},height:{{ideal:720}}}},audio:false}});
+            stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:false});
             video.srcObject=stream;start.disabled=true;stop.disabled=false;status.textContent="Live camera active on this device.";
-          }}catch(e){{status.textContent="Camera access failed. Allow camera permission and use HTTPS.";}}}};
-          stop.onclick=()=>{{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;start.disabled=false;stop.disabled=true;status.textContent="Camera stopped.";}}
-          window.addEventListener("beforeunload",()=>{{if(stream)stream.getTracks().forEach(t=>t.stop());}});
-        }})();
+          }catch(e){status.textContent="Camera access failed. Allow camera permission and use HTTPS.";}};
+          stop.onclick=()=>{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;start.disabled=false;stop.disabled=true;status.textContent="Camera stopped.";}
+          window.addEventListener("beforeunload",()=>{if(stream)stream.getTracks().forEach(t=>t.stop());});
+        })();
         </script>'''
     else:
         viewer=f'''<video class="camera-view" controls autoplay playsinline muted src="{escape(stream_url)}"></video>
