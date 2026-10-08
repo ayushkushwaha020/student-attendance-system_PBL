@@ -229,6 +229,8 @@ def dashboard():
         rows=c.execute("""select s.name,s.code,count(l.id) total,
         (select count(*) from attendance a where a.student_id=? and a.subject_id=s.id and a.source!='AUTO_ABSENT') present
         from subjects s left join lectures l on l.subject_id=s.id and l.course=? and l.section=?
+          and l.status='PDF_SCHEDULED'
+          and s.code not in ('SELF','MENTOR')
           and (l.group_name is null or l.group_name='' or l.group_name=?)
         where s.semester=? and s.section=? group by s.id order by s.code""",
         (st["id"],st["course"],st["section"],st["group_name"],st["semester"],st["section"])).fetchall()
@@ -276,8 +278,8 @@ def attendance():
                     where attendance.source='AUTO_ABSENT'""",
                     (st["id"],lec["subject_id"],lecture_id,lec["lecture_date"],"AUTO_ABSENT",None))
         c.commit(); flash("Attendance saved. Unchecked students are recorded as absent.","success")
-    if u["role"]=="TEACHER": lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
-    else: lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id order by l.lecture_date desc,l.lecture_no").fetchall()
+    if u["role"]=="TEACHER": lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? and s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
+    else: lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no").fetchall()
     students=c.execute("select * from students where 1=1 order by name").fetchall()
     selected_lecture=lectures[0] if lectures else None
     if selected_lecture:
@@ -386,8 +388,9 @@ def reports():
     students=c.execute("select * from students order by name").fetchall()
     rows=[]
     for s in students:
-        total=c.execute("select count(*) from lectures where course=? and section=? and (group_name is null or group_name='' or group_name=?)",(s["course"],s["section"],s["group_name"] or "")).fetchone()[0]
-        present=c.execute("select count(*) from attendance where student_id=? and source!='AUTO_ABSENT'",(s["id"],)).fetchone()[0]
+        total=c.execute("select count(*) from lectures l join subjects s2 on s2.id=l.subject_id where l.course=? and l.section=? and l.status='PDF_SCHEDULED' and s2.code not in ('SELF','MENTOR') and (l.group_name is null or l.group_name='' or l.group_name=?)",(s["course"],s["section"],s["group_name"] or "")).fetchone()[0]
+        present=c.execute("""select count(*) from attendance a join lectures l on l.id=a.lecture_id join subjects s2 on s2.id=l.subject_id
+            where a.student_id=? and a.source!='AUTO_ABSENT' and s2.code not in ('SELF','MENTOR')""",(s["id"],)).fetchone()[0]
         pct=(present/total*100) if total else 0
         rows.append(f'<tr><td>{s["name"]}</td><td>{s["enrollment_no"]}</td><td>{s["course"]}</td><td>{s["section"]}</td><td>{pct:.1f}%</td><td>{present}/{total}</td></tr>')
     c.close()
@@ -427,7 +430,7 @@ def recognition_api():
     c=db(); c.execute("insert into recognition_events(camera_id,student_id,lecture_id,confidence,result) values(?,?,?,?,?)",(cid,sid if result=="MATCH" else None,lid,confidence,result))
     if result=="MATCH" and lid and sid:
         lec=c.execute("select * from lectures where id=?",(lid,)).fetchone()
-        if lec and not c.execute("select id from attendance where student_id=? and lecture_id=?",(sid,lid)).fetchone():
+        if lec:
             c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
                 values(?,?,?,?,?,?)
                 on conflict(student_id,lecture_id,attendance_date) do update set subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by""",
@@ -497,6 +500,11 @@ def ensure_timetable_and_absences():
         and course='B.Tech' and section='C' and status='PDF_SCHEDULED'""",
         (APP_START_DATE.isoformat(),today.isoformat())).fetchall()
     for lec in lectures:
+        if lec["subject_id"] is None:
+            continue
+        subject_row=c.execute("select code from subjects where id=?",(lec["subject_id"],)).fetchone()
+        if subject_row and subject_row["code"] in ("SELF","MENTOR"):
+            continue
         try:
             end_dt=datetime.fromisoformat(lec["lecture_date"]+"T"+(lec["end_time"] or "23:59")).replace(tzinfo=IST)
         except Exception:
