@@ -863,6 +863,70 @@ def _get_schedule_subject(c, code, name, teacher_id):
     c.execute("insert into subjects(code,name,semester,section,teacher_id) values(?,?,?,?,?)",(code,name,3,"C",teacher_id))
     return c.execute("select last_insert_rowid()").fetchone()[0]
 
+def repair_timetable_records():
+    """Reconcile previously generated PDF timetable lectures after timetable corrections."""
+    tt=_load_timetable()
+    today=datetime.now(IST).date()
+    slots={int(x["no"]):x for x in tt["slots"]}
+    day_numbers={"Monday":0,"Tuesday":1,"Wednesday":2,"Thursday":3,"Friday":4}
+    expected={}
+    d=APP_START_DATE
+    while d<=today:
+        day=d.strftime("%A")
+        for e in tt.get("entries",[]):
+            if day_numbers.get(e.get("day")) != d.weekday():
+                continue
+            for n in e.get("slots",[]):
+                expected[(d.isoformat(),e.get("subject_code"),int(n),e.get("group") or "")]=e
+        d += timedelta(days=1)
+
+    c=db()
+    old=c.execute("""select l.*,s.code subject_code from lectures l
+        join subjects s on s.id=l.subject_id
+        where l.status='PDF_SCHEDULED' and l.lecture_date>=? and l.lecture_date<=?
+        and l.course=? and l.section=?""",
+        (APP_START_DATE.isoformat(),today.isoformat(),tt.get("course","B.Tech"),tt.get("section","C"))).fetchall()
+
+    # Remove timetable-generated records that no longer belong to the official
+    # timetable. Preserve any attendance by moving it to the first corrected
+    # lecture for the same subject/date/group when possible.
+    for lec in old:
+        key=(lec["lecture_date"],lec["subject_code"],int(lec["lecture_no"]),lec["group_name"] or "")
+        if key in expected:
+            continue
+        candidates=[x for x in old if x["lecture_date"]==lec["lecture_date"] and x["subject_code"]==lec["subject_code"] and (x["group_name"] or "")==(lec["group_name"] or "") and
+                    (x["lecture_date"],x["subject_code"],int(x["lecture_no"]),x["group_name"] or "") in expected]
+        target=candidates[0] if candidates else None
+        if target and target["id"] != lec["id"]:
+            rows=c.execute("select * from attendance where lecture_id=?",(lec["id"],)).fetchall()
+            for a in rows:
+                exists=c.execute("select id from attendance where student_id=? and lecture_id=? and attendance_date=?",
+                                 (a["student_id"],target["id"],a["attendance_date"])).fetchone()
+                if not exists:
+                    c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
+                        values(?,?,?,?,?,?)""",
+                        (a["student_id"],target["subject_id"],target["id"],a["attendance_date"],a["source"],a["marked_by"]))
+        c.execute("delete from attendance where lecture_id=?",(lec["id"],))
+        c.execute("delete from lectures where id=?",(lec["id"],))
+
+    # Update the slot metadata for surviving official records.
+    for key,e in expected.items():
+        dstr,code,n,group=key
+        sl=slots[n]
+        sid=c.execute("select id from subjects where code=?",(code,)).fetchone()
+        if not sid:
+            continue
+        row=c.execute("""select id from lectures where subject_id=? and lecture_date=? and lecture_no=?
+            and course=? and section=? and ifnull(group_name,'')=ifnull(?, '') and status='PDF_SCHEDULED'""",
+            (sid["id"],dstr,n,tt.get("course","B.Tech"),tt.get("section","C"),group)).fetchone()
+        if row:
+            c.execute("""update lectures set room=?,start_time=?,end_time=?,slot_label=?,lecture_day=?,effective_from=?
+                where id=?""",
+                (tt.get("room","222"),sl["start"],sl["end"],"Slot "+sl["label"],dstr and datetime.fromisoformat(dstr).strftime("%A"),
+                 tt.get("effective_from"),row["id"]))
+    c.commit()
+    c.close()
+
 def ensure_timetable_and_absences():
     tt=_load_timetable()
     today=datetime.now(IST).date()
@@ -972,6 +1036,7 @@ def ensure_timetable_and_absences():
 
 init()
 upgrade_schema()
+repair_timetable_records()
 ensure_timetable_and_absences()
 
 if __name__=="__main__":
