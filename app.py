@@ -1007,6 +1007,17 @@ def ensure_timetable_and_absences():
                         values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (sid,tid,slot_no,"B.Tech","C",tt["room"],d.isoformat(),sl["start"],sl["end"],
                          group,"Slot "+sl["label"],day,tt["effective_from"],"PDF_SCHEDULED"))
+                else:
+                    # Keep official timetable records synchronized with the
+                    # current timetable/teacher assignments. This is important
+                    # when a teacher teaches multiple subjects or an assignment
+                    # is corrected after records were already generated.
+                    c.execute("""update lectures
+                        set teacher_id=?, subject_id=?, room=?, start_time=?, end_time=?,
+                            slot_label=?, lecture_day=?, effective_from=?, status='PDF_SCHEDULED'
+                        where id=?""",
+                        (tid,sid,tt["room"],sl["start"],sl["end"],"Slot "+sl["label"],
+                         day,tt["effective_from"],exists["id"]))
     c.commit()
 
     # Every completed timetable slot gets an attendance row. If nobody has
