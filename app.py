@@ -717,81 +717,269 @@ def cameras():
         name=request.form["name"].strip()
         location=request.form["location"].strip()
         stream_url=request.form.get("url","").strip()
-        c.execute("insert into cameras(camera_name,location,stream_url,authorized) values(?,?,?,1)",(name,location,stream_url)); c.commit(); flash("Camera added.","success")
+        c.execute("insert into cameras(camera_name,location,stream_url,authorized) values(?,?,?,1)",(name,location,stream_url))
+        c.commit()
+        flash("Camera added.","success")
     rows=c.execute("select * from cameras where lower(camera_name) not like '%room 222%' order by case when lower(camera_name)=? then 0 else 1 end,id desc",("login device camera",)).fetchall()
-    c.commit(); c.close()
+    c.commit()
+    c.close()
+
     cards=[]
+    camera_config=[]
     for x in rows:
         is_local=(x["stream_url"] or "")=="LOCAL_DEVICE"
         source="Browser device camera" if is_local else (x["stream_url"] or "No browser-compatible stream configured")
         badge="DEFAULT · LOGIN DEVICE" if is_local else "AUTHORIZED CAMERA"
-        cards.append(f'''<a class="card camera-card" href="/cameras/{x["id"]}">
-          <div class="camera-card-top"><span class="pill">{badge}</span><span class="camera-open">VIEW →</span></div>
+        camera_config.append({"id":x["id"],"name":x["camera_name"],"location":x["location"],"stream_url":x["stream_url"] or "","local":is_local})
+        cards.append(f'''<button type="button" class="camera-card" data-camera-id="{x["id"]}">
+          <div class="camera-card-top"><span class="pill">{badge}</span><span class="camera-open">OPEN FEED</span></div>
           <b class="camera-card-title">{escape(x["camera_name"])}</b>
           <small>{escape(x["location"])} · {escape(source)}</small>
-          <div class="camera-thumb"><span>{'◉' if is_local else '▣'}</span><em>{'Click to open this device camera' if is_local else 'Click to open camera view'}</em></div>
-        </a>''')
-    body=f'''<style>
-      .camera-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px;padding:18px}}
-      .camera-card{{display:block;padding:18px;transition:.2s ease;border:1px solid #22344f}}
-      .camera-card:hover{{transform:translateY(-4px);border-color:#667dff;box-shadow:0 22px 48px #0007}}
-      .camera-card-top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}}
-      .camera-open{{font-size:11px;font-weight:900;color:#8fa7ff}}
-      .camera-card-title{{display:block;font-size:18px;margin-bottom:6px}}
-      .camera-card small{{display:block;color:#8291aa;min-height:32px;line-height:1.45}}
-      .camera-thumb{{height:135px;margin-top:16px;border-radius:14px;border:1px dashed #304565;background:radial-gradient(circle at 50% 40%,#1b3150,#091321 68%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#7e91ad}}
-      .camera-thumb span{{font-size:30px;color:#7387ff}}.camera-thumb em{{font-style:normal;font-size:10px;margin-top:7px}}
-      @media(max-width:700px){{.camera-grid{{grid-template-columns:1fr}}}}
+          <div class="camera-thumb"><span>{'◉' if is_local else '▣'}</span><em>Click to add this camera to live view</em></div>
+        </button>''')
+
+    camera_json=json.dumps(camera_config)
+    body='''<style>
+      .camera-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;padding:14px}
+      .camera-card{display:block;width:100%;text-align:left;padding:14px;transition:.2s ease;border:1px solid #22344f;background:#0d1a2c;color:#eef4ff;border-radius:15px;cursor:pointer}
+      .camera-card:hover{transform:translateY(-3px);border-color:#667dff;box-shadow:0 16px 34px #0006}
+      .camera-card.active{border-color:#6e82ff;box-shadow:0 0 0 2px #667dff33}
+      .camera-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:11px}
+      .camera-open{font-size:9px;font-weight:950;color:#8fa7ff;letter-spacing:.06em}
+      .camera-card-title{display:block;font-size:15px;margin-bottom:5px}
+      .camera-card small{display:block;color:#8291aa;min-height:28px;line-height:1.4;font-size:10px}
+      .camera-thumb{height:98px;margin-top:12px;border-radius:11px;border:1px dashed #304565;background:radial-gradient(circle at 50% 40%,#1b3150,#091321 68%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#7e91ad}
+      .camera-thumb span{font-size:24px;color:#7387ff}.camera-thumb em{font-style:normal;font-size:9px;margin-top:6px}
+      .live-modal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(2,7,14,.82);backdrop-filter:blur(7px);padding:22px;box-sizing:border-box}
+      .live-modal.open{display:block}
+      .live-panel{width:min(1500px,100%);height:min(92vh,980px);margin:auto;background:#081321;border:1px solid #304565;border-radius:20px;box-shadow:0 30px 90px #000b;display:flex;flex-direction:column;overflow:hidden}
+      .live-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-bottom:1px solid #223752}
+      .live-title{font-size:18px;font-weight:950}.live-sub{font-size:10px;color:#8291aa;margin-top:3px}
+      .live-actions{display:flex;gap:8px;align-items:center}
+      .live-actions button{border:1px solid #304565;background:#10213a;color:#dce7f8;border-radius:10px;padding:9px 12px;font-weight:850;cursor:pointer}
+      .live-actions button:hover{border-color:#657cff}
+      .feed-grid{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;overflow:auto;flex:1;align-content:start}
+      .feed-tile{position:relative;min-height:235px;aspect-ratio:16/10;background:#02070d;border:1px solid #263c59;border-radius:14px;overflow:hidden}
+      .feed-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#02070d}
+      .feed-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+      .feed-label{position:absolute;left:10px;top:10px;z-index:3;padding:6px 9px;border-radius:8px;background:rgba(3,10,20,.72);border:1px solid rgba(125,153,205,.35);font-size:10px;font-weight:900;color:#edf4ff}
+      .face-count{position:absolute;right:10px;top:10px;z-index:3;padding:6px 9px;border-radius:8px;background:rgba(3,10,20,.68);font-size:9px;color:#b9c9df}
+      .feed-status{position:absolute;left:10px;bottom:10px;z-index:3;padding:5px 8px;border-radius:7px;background:rgba(3,10,20,.7);font-size:9px;color:#aebdd2}
+      .empty-feeds{grid-column:1/-1;display:grid;place-items:center;min-height:260px;color:#71829b;border:1px dashed #2a3f5e;border-radius:14px}
+      .detection-on{color:#80d7b2!important}
+      @media(max-width:700px){.live-modal{padding:8px}.live-panel{height:96vh;border-radius:14px}.feed-grid{grid-template-columns:1fr;padding:9px}.feed-tile{min-height:210px}.camera-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:10px}.camera-card{padding:11px}.camera-thumb{height:78px}}
     </style>
-    <div class="card"><div class="head"><div><span class="pill">CAMERA MANAGEMENT</span><h2 style="margin:8px 0 5px">University Cameras</h2><p class="muted">The default camera is this login device. Click any camera to open its live view.</p></div></div>
+    <div class="card"><div class="head"><div><span class="pill">CAMERA MANAGEMENT</span><h2 style="margin:8px 0 5px">University Cameras</h2><p class="muted">Click one or more cameras to add them to the live popup. AI face detection runs on every active feed.</p></div></div>
       <form class="form" method="post"><label>Name<input name="name" required></label><label>Location<input name="location" required></label><label>Stream URL<input name="url" placeholder="Browser-compatible HLS/WebRTC URL"></label><div><button class="btn primary">Authorize Camera</button></div></form>
     </div>
-    <div class="card"><div class="head"><h3>Available Cameras</h3><span class="pill">{len(rows)} cameras</span></div><div class="camera-grid">{''.join(cards) or '<div style="padding:20px" class="muted">No cameras available.</div>'}</div></div>'''
+    <div class="card"><div class="head"><h3>Available Cameras</h3><span class="pill" id="selectedCount">0 selected</span></div><div class="camera-grid">__CAMERA_CARDS__</div></div>
+
+    <div class="live-modal" id="liveModal" aria-hidden="true">
+      <div class="live-panel">
+        <div class="live-head">
+          <div><div class="live-title">Live Camera Feeds</div><div class="live-sub"><span id="feedCount">0</span> active camera(s) · <span id="aiStatus">Preparing AI face detection…</span></div></div>
+          <div class="live-actions"><button type="button" id="clearFeeds">Clear All</button><button type="button" id="closeFeeds">✕ Close</button></div>
+        </div>
+        <div class="feed-grid" id="feedGrid"><div class="empty-feeds">Select a camera above to start its live feed.</div></div>
+      </div>
+    </div>
+
+    <script type="module">
+    const CAMERA_CONFIG=__CAMERA_JSON__;
+    const modal=document.getElementById("liveModal");
+    const feedGrid=document.getElementById("feedGrid");
+    const selectedCount=document.getElementById("selectedCount");
+    const feedCount=document.getElementById("feedCount");
+    const aiStatus=document.getElementById("aiStatus");
+    const active=new Map();
+    let detector=null;
+    let detectorPromise=null;
+    let detectionTimer=null;
+
+    function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
+
+    async function getDetector(){
+      if(detector) return detector;
+      if(detectorPromise) return detectorPromise;
+      detectorPromise=(async()=>{
+        try{
+          aiStatus.textContent="Loading AI face detector…";
+          const {FaceDetector,FilesetResolver}=await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs");
+          const vision=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm");
+          const model="https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite";
+          try{
+            detector=await FaceDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:model,delegate:"GPU"},runningMode:"VIDEO",minDetectionConfidence:.5,minSuppressionThreshold:.3});
+          }catch(gpuError){
+            detector=await FaceDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:model,delegate:"CPU"},runningMode:"VIDEO",minDetectionConfidence:.5,minSuppressionThreshold:.3});
+          }
+          aiStatus.textContent="AI face detection ON";
+          aiStatus.classList.add("detection-on");
+          return detector;
+        }catch(error){
+          console.error("Face detector initialization failed",error);
+          aiStatus.textContent="AI detector unavailable — feeds still active";
+          throw error;
+        }
+      })();
+      return detectorPromise;
+    }
+
+    function syncCounts(){
+      selectedCount.textContent=active.size+" selected";
+      feedCount.textContent=active.size;
+      document.querySelectorAll(".camera-card").forEach(card=>card.classList.toggle("active",active.has(Number(card.dataset.cameraId))));
+    }
+
+    function fitRect(video,canvas){
+      const vw=video.videoWidth||1280,vh=video.videoHeight||720;
+      const cw=canvas.clientWidth,ch=canvas.clientHeight;
+      const scale=Math.min(cw/vw,ch/vh);
+      return {scale,ox:(cw-vw*scale)/2,oy:(ch-vh*scale)/2};
+    }
+
+    function drawBoxes(item,detections){
+      const {video,canvas,ctx,count}=item;
+      const cw=canvas.clientWidth,ch=canvas.clientHeight;
+      const dpr=window.devicePixelRatio||1;
+      canvas.width=Math.max(1,Math.round(cw*dpr));canvas.height=Math.max(1,Math.round(ch*dpr));
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.clearRect(0,0,cw,ch);
+      const fit=fitRect(video,canvas);
+      let faces=0;
+      for(const detection of (detections?.detections||[])){
+        const b=detection.boundingBox;
+        if(!b) continue;
+        faces++;
+        const x=fit.ox+b.originX*fit.scale;
+        const y=fit.oy+b.originY*fit.scale;
+        const w=b.width*fit.scale;
+        const h=b.height*fit.scale;
+        ctx.save();
+        ctx.fillStyle="rgba(74,126,255,.16)";
+        ctx.strokeStyle="rgba(116,168,255,.95)";
+        ctx.lineWidth=2;
+        ctx.fillRect(x,y,w,h);
+        ctx.strokeRect(x,y,w,h);
+        const score=(detection.categories?.[0]?.score||0)*100;
+        const label="FACE "+score.toFixed(0)+"%";
+        ctx.font="700 11px Inter,Arial,sans-serif";
+        const tw=ctx.measureText(label).width+14;
+        const lh=21;
+        const ly=Math.max(0,y-lh);
+        ctx.fillStyle="rgba(5,13,27,.78)";
+        ctx.fillRect(x,ly,tw,lh);
+        ctx.fillStyle="#eef5ff";
+        ctx.fillText(label,x+7,ly+15);
+        ctx.restore();
+      }
+      count.textContent=faces+" face"+(faces===1?"":"s");
+    }
+
+    async function detectAll(){
+      if(!active.size) return;
+      let d;
+      try{d=await getDetector();}catch(_){return;}
+      const now=performance.now();
+      for(const item of active.values()){
+        if(!item.video.videoWidth||item.video.readyState<2) continue;
+        try{
+          const result=d.detectForVideo(item.video,now);
+          drawBoxes(item,result);
+        }catch(error){console.warn("Face detection frame failed",error);}
+      }
+    }
+
+    function startDetectionLoop(){
+      if(detectionTimer) return;
+      detectionTimer=setInterval(detectAll,110);
+    }
+
+    function makeFeed(camera){
+      const id=String(camera.id);
+      const tile=document.createElement("div");
+      tile.className="feed-tile";
+      tile.dataset.cameraId=id;
+      const label=document.createElement("div");
+      label.className="feed-label";
+      label.textContent=camera.name;
+      const count=document.createElement("div");
+      count.className="face-count";
+      count.textContent="0 faces";
+      const status=document.createElement("div");
+      status.className="feed-status";
+      status.textContent="Starting feed…";
+      const video=document.createElement("video");
+      video.className="feed-video";
+      video.autoplay=true;video.playsInline=true;video.muted=true;
+      const canvas=document.createElement("canvas");
+      canvas.className="feed-overlay";
+      tile.append(label,count,status,video,canvas);
+      feedGrid.appendChild(tile);
+      const item={camera,tile,video,canvas,ctx:canvas.getContext("2d"),count,stream:null};
+      active.set(camera.id,item);
+
+      if(camera.local){
+        navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:false}).then(stream=>{
+          if(!active.has(camera.id)){stream.getTracks().forEach(t=>t.stop());return;}
+          item.stream=stream;video.srcObject=stream;status.textContent="LIVE · Device Camera";
+          return video.play();
+        }).catch(error=>{
+          console.error(error);status.textContent="Camera access denied or unavailable.";
+        });
+      }else if(camera.stream_url){
+        video.src=camera.stream_url;
+        video.onloadedmetadata=()=>{status.textContent="LIVE · Stream connected";video.play().catch(()=>{});};
+        video.onerror=()=>{status.textContent="Stream unavailable or not browser-compatible.";};
+      }else{
+        status.textContent="No browser-compatible stream configured.";
+      }
+      getDetector().catch(()=>{});
+      syncCounts();
+      startDetectionLoop();
+    }
+
+    function removeFeed(cameraId){
+      const item=active.get(cameraId);
+      if(!item) return;
+      if(item.stream) item.stream.getTracks().forEach(t=>t.stop());
+      item.video.pause();item.video.srcObject=null;item.video.removeAttribute("src");item.video.load();
+      item.tile.remove();
+      active.delete(cameraId);
+      syncCounts();
+      if(!active.size){
+        modal.classList.remove("open");
+        modal.setAttribute("aria-hidden","true");
+        feedGrid.innerHTML='<div class="empty-feeds">Select a camera above to start its live feed.</div>';
+      }
+    }
+
+    function openCamera(cameraId){
+      const camera=CAMERA_CONFIG.find(x=>Number(x.id)===Number(cameraId));
+      if(!camera) return;
+      if(active.has(camera.id)){removeFeed(camera.id);return;}
+      modal.classList.add("open");modal.setAttribute("aria-hidden","false");
+      const empty=feedGrid.querySelector(".empty-feeds");if(empty)empty.remove();
+      makeFeed(camera);
+    }
+
+    document.querySelectorAll(".camera-card").forEach(card=>card.addEventListener("click",()=>openCamera(Number(card.dataset.cameraId))));
+    document.getElementById("clearFeeds").onclick=()=>Array.from(active.keys()).forEach(id=>removeFeed(id));
+    document.getElementById("closeFeeds").onclick=()=>Array.from(active.keys()).forEach(id=>removeFeed(id));
+    modal.addEventListener("click",e=>{if(e.target===modal)Array.from(active.keys()).forEach(id=>removeFeed(id));});
+    document.addEventListener("keydown",e=>{if(e.key==="Escape")Array.from(active.keys()).forEach(id=>removeFeed(id));});
+    window.addEventListener("beforeunload",()=>Array.from(active.values()).forEach(item=>{if(item.stream)item.stream.getTracks().forEach(t=>t.stop());}));
+
+    syncCounts();
+    </script>'''
+    body=body.replace("__CAMERA_CARDS__","".join(cards) or '<div style="padding:20px" class="muted">No cameras available.</div>')
+    body=body.replace("__CAMERA_JSON__",camera_json)
     return page("Camera Management",body)
 
 @app.route("/cameras/<int:camera_id>")
 @need("ADMIN")
 def camera_view(camera_id):
-    c=db()
-    camera=c.execute("select * from cameras where id=?",(camera_id,)).fetchone()
-    c.close()
-    if not camera:
-        flash("Camera not found.","danger")
-        return redirect(url_for("cameras"))
-    if "room 222" in (camera["camera_name"] or "").lower() or (camera["location"] or "").strip()=="222":
-        flash("The Room 222 camera has been removed.","warning")
-        return redirect(url_for("cameras"))
-    is_local=(camera["stream_url"] or "")=="LOCAL_DEVICE"
-    stream_url=camera["stream_url"] or ""
-    if is_local:
-        viewer='''<video id="cameraVideo" class="camera-view" autoplay playsinline muted></video>
-        <div class="camera-actions"><button class="btn primary" id="startCamera">◉ Start Camera</button><button class="btn" id="stopCamera" disabled>■ Stop</button></div>
-        <div id="cameraStatus" class="camera-status">Click Start Camera to use this login device camera.</div>
-        <script>
-        (()=>{
-          const video=document.getElementById("cameraVideo"),start=document.getElementById("startCamera"),stop=document.getElementById("stopCamera"),status=document.getElementById("cameraStatus");let stream=null;
-          start.onclick=async()=>{try{
-            if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) throw new Error("Camera API unavailable");
-            stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:false});
-            video.srcObject=stream;start.disabled=true;stop.disabled=false;status.textContent="Live camera active on this device.";
-          }catch(e){status.textContent="Camera access failed. Allow camera permission and use HTTPS.";}};
-          stop.onclick=()=>{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;start.disabled=false;stop.disabled=true;status.textContent="Camera stopped.";}
-          window.addEventListener("beforeunload",()=>{if(stream)stream.getTracks().forEach(t=>t.stop());});
-        })();
-        </script>'''
-    else:
-        viewer=f'''<video class="camera-view" controls autoplay playsinline muted src="{escape(stream_url)}"></video>
-        <div class="camera-status">Stream URL: {escape(stream_url)}. The URL must be browser-compatible; RTSP URLs cannot be played directly by a normal browser.</div>'''
-    body=f'''<style>
-      .camera-view-wrap{{max-width:1200px;margin:auto}}
-      .camera-view{{width:100%;min-height:520px;max-height:75vh;object-fit:contain;border-radius:18px;background:#02070d;border:1px solid #2a3d59;display:block}}
-      .camera-actions{{display:flex;gap:10px;margin-top:14px}}
-      .camera-status{{margin-top:12px;color:#8fa0b8;font-size:12px;padding:12px 14px;border:1px solid #243752;border-radius:11px;background:#0a1627}}
-    </style>
-    <div class="hero"><div><span class="pill">{'DEFAULT CAMERA' if is_local else 'AUTHORIZED CAMERA'}</span><h2>{escape(camera["camera_name"])}</h2><p class="muted">{escape(camera["location"])} · Live view</p></div><a class="btn" href="/cameras">← All Cameras</a></div>
-    <div class="card camera-view-wrap"><div style="padding:18px">{viewer}</div></div>'''
-    return page("Camera View",body)
-
+    # Kept as a compatibility route for old bookmarks; new camera access uses the popup.
+    return redirect(url_for("cameras"))
 
 
 # --- Fail-safe PDF document ingestion ---------------------------------------
