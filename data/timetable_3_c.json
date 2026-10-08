@@ -93,7 +93,7 @@
       "teacher_code": "T003",
       "group": null,
       "slots": [
-        4
+        3
       ]
     },
     {
@@ -103,7 +103,7 @@
       "teacher_code": "T004",
       "group": null,
       "slots": [
-        5
+        4
       ]
     },
     {
@@ -124,8 +124,8 @@
       "teacher_code": "T004",
       "group": "25aiml(26c2)",
       "slots": [
-        1,
-        2
+        7,
+        8
       ]
     },
     {
@@ -198,7 +198,6 @@
       "teacher_code": "T009",
       "group": null,
       "slots": [
-        6,
         7,
         8
       ]
@@ -254,7 +253,6 @@
       "teacher_code": "T006",
       "group": "25aiml(26c1)",
       "slots": [
-        6,
         7,
         8
       ]
