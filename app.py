@@ -427,8 +427,12 @@ def dashboard():
 def attendance():
     c=db(); u=me()
     if u["role"]=="TEACHER":
+        # A teacher owns every lecture whose subject is assigned to their
+        # teacher profile. The lecture-level teacher_id is kept as a fallback
+        # for older records created before subject assignments were corrected.
         lectures=c.execute("""select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id
-            where l.teacher_id=? and s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no""",(u["teacher_id"],)).fetchall()
+            where (l.teacher_id=? or s.teacher_id=?) and s.code not in ('SELF','MENTOR')
+            order by l.lecture_date desc,l.lecture_no""",(u["teacher_id"],u["teacher_id"])).fetchall()
     else:
         lectures=c.execute("""select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id
             where s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no""").fetchall()
