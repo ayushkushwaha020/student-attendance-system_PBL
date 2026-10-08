@@ -1,0 +1,309 @@
+{
+  "source": "Sharda University Agra – B.Tech CSE-2C Odd Semester AY 2026-27 timetable PDF",
+  "effective_from": "2026-07-15",
+  "app_start_date": "2026-10-01",
+  "course": "B.Tech",
+  "semester": 3,
+  "section": "C",
+  "room": "222",
+  "slots": [
+    {
+      "no": 1,
+      "label": "I",
+      "start": "09:30",
+      "end": "10:15"
+    },
+    {
+      "no": 2,
+      "label": "II",
+      "start": "10:20",
+      "end": "11:05"
+    },
+    {
+      "no": 3,
+      "label": "III",
+      "start": "11:10",
+      "end": "11:55"
+    },
+    {
+      "no": 4,
+      "label": "IV",
+      "start": "12:00",
+      "end": "12:45"
+    },
+    {
+      "no": 5,
+      "label": "V",
+      "start": "12:50",
+      "end": "13:35"
+    },
+    {
+      "no": 6,
+      "label": "VI",
+      "start": "13:40",
+      "end": "14:25"
+    },
+    {
+      "no": 7,
+      "label": "VII",
+      "start": "14:30",
+      "end": "15:15"
+    },
+    {
+      "no": 8,
+      "label": "VIII",
+      "start": "15:20",
+      "end": "16:05"
+    },
+    {
+      "no": 9,
+      "label": "IX",
+      "start": "16:10",
+      "end": "16:55"
+    }
+  ],
+  "entries": [
+    {
+      "day": "Monday",
+      "subject_code": "BECS301A",
+      "subject_name": "Data Structures & Algorithms",
+      "teacher_code": "T001",
+      "group": "25aiml(26c1)",
+      "slots": [
+        1,
+        2
+      ]
+    },
+    {
+      "day": "Monday",
+      "subject_code": "BEAI302A",
+      "subject_name": "Introduction to AI&ML",
+      "teacher_code": "T006",
+      "group": "25aiml(26c2)",
+      "slots": [
+        1,
+        2
+      ]
+    },
+    {
+      "day": "Monday",
+      "subject_code": "BEMT301",
+      "subject_name": "Engineering Maths III",
+      "teacher_code": "T003",
+      "group": null,
+      "slots": [
+        4
+      ]
+    },
+    {
+      "day": "Monday",
+      "subject_code": "BECS306",
+      "subject_name": "Discrete Structure",
+      "teacher_code": "T004",
+      "group": null,
+      "slots": [
+        5
+      ]
+    },
+    {
+      "day": "Tuesday",
+      "subject_code": "BECS301A",
+      "subject_name": "Data Structures & Algorithms",
+      "teacher_code": "T001",
+      "group": "25aiml(26c1)",
+      "slots": [
+        1,
+        2
+      ]
+    },
+    {
+      "day": "Tuesday",
+      "subject_code": "BEAI301P",
+      "subject_name": "Introduction to IOT Lab",
+      "teacher_code": "T004",
+      "group": "25aiml(26c2)",
+      "slots": [
+        1,
+        2
+      ]
+    },
+    {
+      "day": "Tuesday",
+      "subject_code": "BECS302",
+      "subject_name": "Computer Organization & Architecture",
+      "teacher_code": "T002",
+      "group": null,
+      "slots": [
+        3
+      ]
+    },
+    {
+      "day": "Tuesday",
+      "subject_code": "BEAI301",
+      "subject_name": "Introduction to IOT",
+      "teacher_code": "T005",
+      "group": null,
+      "slots": [
+        4
+      ]
+    },
+    {
+      "day": "Wednesday",
+      "subject_code": "BECS306",
+      "subject_name": "Discrete Structure",
+      "teacher_code": "T004",
+      "group": null,
+      "slots": [
+        1,
+        2
+      ]
+    },
+    {
+      "day": "Wednesday",
+      "subject_code": "BEAI301",
+      "subject_name": "Introduction to IOT",
+      "teacher_code": "T005",
+      "group": null,
+      "slots": [
+        3
+      ]
+    },
+    {
+      "day": "Wednesday",
+      "subject_code": "BEAI302A",
+      "subject_name": "Introduction to AI&ML",
+      "teacher_code": "T006",
+      "group": "25aiml(26c1)",
+      "slots": [
+        4,
+        5
+      ]
+    },
+    {
+      "day": "Wednesday",
+      "subject_code": "BECS301A",
+      "subject_name": "Data Structures & Algorithms",
+      "teacher_code": "T001",
+      "group": "25aiml(26c2)",
+      "slots": [
+        4,
+        5
+      ]
+    },
+    {
+      "day": "Wednesday",
+      "subject_code": "BSKL301A",
+      "subject_name": "Logical Skills Building and Soft Skills",
+      "teacher_code": "T009",
+      "group": null,
+      "slots": [
+        7,
+        8
+      ]
+    },
+    {
+      "day": "Thursday",
+      "subject_code": "BEMT301",
+      "subject_name": "Engineering Maths III",
+      "teacher_code": "T003",
+      "group": null,
+      "slots": [
+        1
+      ]
+    },
+    {
+      "day": "Thursday",
+      "subject_code": "BECS302",
+      "subject_name": "Computer Organization & Architecture",
+      "teacher_code": "T002",
+      "group": null,
+      "slots": [
+        2
+      ]
+    },
+    {
+      "day": "Thursday",
+      "subject_code": "BEAI302A",
+      "subject_name": "Introduction to AI&ML",
+      "teacher_code": "T006",
+      "group": "25aiml(26c1)",
+      "slots": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "day": "Thursday",
+      "subject_code": "BEAI301P",
+      "subject_name": "Introduction to IOT Lab",
+      "teacher_code": "T006",
+      "group": "25aiml(26c1)",
+      "slots": [
+        7,
+        8
+      ]
+    },
+    {
+      "day": "Thursday",
+      "subject_code": "BEAI302A",
+      "subject_name": "Introduction to AI&ML",
+      "teacher_code": "T006",
+      "group": "25aiml(26c2)",
+      "slots": [
+        7,
+        8
+      ]
+    },
+    {
+      "day": "Friday",
+      "subject_code": "BEMT301",
+      "subject_name": "Engineering Maths III",
+      "teacher_code": "T003",
+      "group": null,
+      "slots": [
+        1
+      ]
+    },
+    {
+      "day": "Friday",
+      "subject_code": "BECS302",
+      "subject_name": "Computer Organization & Architecture",
+      "teacher_code": "T002",
+      "group": null,
+      "slots": [
+        2
+      ]
+    },
+    {
+      "day": "Friday",
+      "subject_code": "BEAI301",
+      "subject_name": "Introduction to IOT",
+      "teacher_code": "T005",
+      "group": null,
+      "slots": [
+        3
+      ]
+    },
+    {
+      "day": "Friday",
+      "subject_code": "BECS305P",
+      "subject_name": "Project Based Learning I",
+      "teacher_code": "T007",
+      "group": null,
+      "slots": [
+        4
+      ]
+    },
+    {
+      "day": "Friday",
+      "subject_code": "SELF",
+      "subject_name": "Self Learning",
+      "teacher_code": null,
+      "group": null,
+      "slots": [
+        5
+      ]
+    }
+  ]
+}
