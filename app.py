@@ -184,13 +184,7 @@ def page(title,body,**ctx):
         initials="".join(part[0] for part in (u["display_name"] or "").split() if part)[:2].upper() or "A"
     nav=""
     if u:
-        logo_b64=""
-        try:
-            with open(os.path.join(os.path.dirname(__file__),"static","attendai-logo.b64"),"r",encoding="utf-8") as lf:
-                logo_b64=lf.read().strip()
-        except Exception:
-            pass
-        nav=f'<aside class="side"><div class="brand"><div class="logo"><img src="data:image/png;base64,{logo_b64}" alt="AttendAI"></div><div><b>AttendAI</b><small>University System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
+        nav=f'<aside class="side"><div class="brand"><div class="logo"><img src="/static/attendai-logo.svg" alt="Sharda University Agra"></div><div><b>Sharda University Agra</b><small>Student Attendance System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
         if u["role"] in ("ADMIN","TEACHER"): nav+='<a href="/attendance">✓ Attendance</a><a href="/lectures">◷ Lectures</a>'
         if u["role"]=="ADMIN": nav+='<a href="/import">⇧ PDF Import</a><a href="/students">♙ Students</a><a href="/lectures">◷ Lectures</a><a href="/cameras">◉ Cameras</a><a href="/recognition">◎ Recognition</a><a href="/reports">▥ Reports</a><a href="/audit">⌁ Audit Logs</a>'
         if u["role"]=="STUDENT": nav+='<a href="/student/attendance">▤ My Attendance</a><a href="/student/timetable">▦ Time Table</a>'
@@ -209,7 +203,7 @@ def login():
         c=db(); u=c.execute("select * from users where username=? and password=?",(request.form["username"].strip(),request.form["password"])).fetchone(); c.close()
         if u: session["uid"]=u["id"]; return redirect(url_for("dashboard"))
         flash("Invalid credentials.","danger")
-    return render_template_string("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>""" + CSS + """</style></head><body class="login"><form class="loginbox card" method="post"><div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University Attendance System</small></div></div><h2>Sign in</h2><p class="muted">Role is loaded automatically from your account.</p><input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required><button>Sign in</button><p class="small muted" style="text-align:center;margin-top:16px">New student? <a href="/register" style="color:#8d9aff;font-weight:800">Register here</a></p></form></body></html>""")
+    return render_template_string("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>""" + CSS + """</style></head><body class="login"><form class="loginbox card" method="post"><div class="brand"><div class="logo"><img src="/static/attendai-logo.svg" alt="Sharda University Agra"></div><div><b>Sharda University Agra</b><small>Student Attendance System</small></div></div><h2>Sign in</h2><p class="muted">Role is loaded automatically from your account.</p><input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required><button>Sign in</button><p class="small muted" style="text-align:center;margin-top:16px">New student? <a href="/register" style="color:#8d9aff;font-weight:800">Register here</a></p></form></body></html>""")
 
 @app.route("/register",methods=["GET","POST"])
 def register():
@@ -255,7 +249,7 @@ def register():
             c.close()
 
     return render_template_string("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>""" + CSS + """</style></head><body class="login"><form class="loginbox card" method="post">
-    <div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University Attendance System</small></div></div>
+    <div class="brand"><div class="logo"><img src="/static/attendai-logo.svg" alt="Sharda University Agra"></div><div><b>Sharda University Agra</b><small>Student Attendance System</small></div></div>
     <h2>Register New Student</h2><p class="muted">Create your student account to access your attendance portal.</p>
     {% if error %}<div class="flash">{{ error }}</div>{% endif %}
     <input name="name" placeholder="Full Name" required>
@@ -485,7 +479,7 @@ def student_profile():
           <label>Course / Semester<input value="{st["course"]} · Semester {st["semester"]}" disabled></label>
           <label>Section / Group<input value="{st["section"]} · {st["group_name"] or "—"}" disabled></label>
           <div class="wide"><small class="muted">Name and all university-issued academic details are protected from student-side editing.</small></div>
-          <div class="wide profile-picture-box"><h3 style="margin:0 0 5px">Profile Picture</h3><p class="muted small">Choose a picture to replace the AttendAI logo shown beside your account.</p>{profile_preview}<input id="profilePictureFile" type="file" accept="image/*"><input id="profilePictureData" name="profile_picture" type="hidden">
+          <div class="wide profile-picture-box"><h3 style="margin:0 0 5px">Profile Picture</h3><p class="muted small">Choose a picture to replace the app logo shown beside your account.</p>{profile_preview}<input id="profilePictureFile" type="file" accept="image/*"><input id="profilePictureData" name="profile_picture" type="hidden">
             {('<button class="btn danger" type="submit" name="remove_profile_picture" value="1" onclick="return confirm(\'Remove your profile picture?\')">Remove PFP</button>' if profile_src else '')}</div>
           <div class="wide"><button class="btn primary" type="submit">Save Profile Changes</button></div>
         </form>
