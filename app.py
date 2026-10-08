@@ -190,7 +190,7 @@ def register():
                 elif c.execute("select id from users where username=?",(username,)).fetchone():
                     error="This username is already taken."
                 else:
-                    c.execute("insert into students(enrollment_no,name,course,semester,section) values(?,?,?,?,?)",(enrollment,name,course,semester,section))
+                    c.execute("insert into students(enrollment_no,name,course,semester,section,group_name) values(?,?,?,?,?,?)",(enrollment,name,course,semester,section,""))
                     sid=c.execute("select last_insert_rowid()").fetchone()[0]
                     c.execute("insert into users(username,password,role,display_name,student_id) values(?,?,?,?,?)",(username,password,"STUDENT",name,sid))
                     c.commit()
@@ -364,7 +364,6 @@ def lecture_manager():
         sid=int(request.form["subject_id"]); slot=int(request.form["lecture_no"])
         teacher_id=u["teacher_id"] if u["role"]=="TEACHER" else (int(request.form.get("teacher_id")) if request.form.get("teacher_id") else None)
         times=[("09:30","10:15"),("10:20","11:05"),("11:10","11:55"),("12:00","12:45"),("12:50","13:35"),("13:40","14:25"),("14:30","15:15"),("15:20","16:05"),("16:10","16:55")]
-        st,en=times[slot-1]
         st,en=times[slot-1]
         c.execute("insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,start_time,end_time,slot_label,status) values(?,?,?,?,?,?,?,?,?,?,?)",(sid,teacher_id,slot,request.form.get("course","B.Tech"),request.form.get("section","C"),request.form.get("room","222"),request.form["lecture_date"],st,en,f"Slot {slot}","MANUAL"))
         audit("CREATE_LECTURE","lecture",c.execute("select last_insert_rowid()").fetchone()[0],"manual lecture")
