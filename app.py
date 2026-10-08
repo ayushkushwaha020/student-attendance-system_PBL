@@ -438,7 +438,10 @@ def attendance():
         lecture_id=int(request.form["lecture_id"]); selected=next((l for l in lectures if l["id"]==lecture_id),None)
         if not selected or (u["role"]=="TEACHER" and selected["teacher_id"]!=u["teacher_id"]):
             c.close(); flash("Lecture not found or not assigned to you.","danger"); return redirect(url_for("attendance"))
-        students=c.execute("""select * from students where course=? and section=? and (group_name is null or group_name='' or group_name=?) order by name""",(selected["course"],selected["section"],selected["group_name"] or "")).fetchall()
+        if selected["group_name"]:
+            students=c.execute("""select * from students where course=? and section=? and group_name=? order by name""",(selected["course"],selected["section"],selected["group_name"])).fetchall()
+        else:
+            students=c.execute("""select * from students where course=? and section=? order by name""",(selected["course"],selected["section"])).fetchall()
         ps="TEACHER_OVERRIDE" if u["role"]=="TEACHER" else "ADMIN_OVERRIDE"; aas="TEACHER_ABSENT" if u["role"]=="TEACHER" else "ADMIN_ABSENT"
         for st in students:
             src=ps if request.form.get(f"status_{st['id']}","A")=="P" else aas
@@ -920,9 +923,10 @@ def repair_timetable_records():
             and course=? and section=? and ifnull(group_name,'')=ifnull(?, '') and status='PDF_SCHEDULED'""",
             (sid["id"],dstr,n,tt.get("course","B.Tech"),tt.get("section","C"),group)).fetchone()
         if row:
-            c.execute("""update lectures set room=?,start_time=?,end_time=?,slot_label=?,lecture_day=?,effective_from=?
+            teacher_id=_get_schedule_teacher(c,e.get("teacher_code"))
+            c.execute("""update lectures set teacher_id=?,room=?,start_time=?,end_time=?,slot_label=?,lecture_day=?,effective_from=?
                 where id=?""",
-                (tt.get("room","222"),sl["start"],sl["end"],"Slot "+sl["label"],dstr and datetime.fromisoformat(dstr).strftime("%A"),
+                (teacher_id,tt.get("room","222"),sl["start"],sl["end"],"Slot "+sl["label"],dstr and datetime.fromisoformat(dstr).strftime("%A"),
                  tt.get("effective_from"),row["id"]))
     c.commit()
     c.close()
