@@ -684,8 +684,20 @@ def recognition_api():
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
-APP_START_DATE = date(2026, 10, 1)
 IST = ZoneInfo("Asia/Kolkata")
+
+# Keep attendance-history generation tied to the timetable source. This means
+# when timetable slots are added later, the startup reconciliation below
+# backfills the missing lecture + AUTO_ABSENT records from the app start date
+# through today instead of requiring manual attendance-history edits.
+def _timetable_start_date():
+    try:
+        value = _load_timetable().get("app_start_date", "2026-10-01")
+        return date.fromisoformat(value)
+    except Exception:
+        return date(2026, 10, 1)
+
+APP_START_DATE = _timetable_start_date()
 
 def _load_timetable():
     with open(os.path.join(os.path.dirname(__file__),"data","timetable_3_c.json"),"r",encoding="utf-8") as f:
