@@ -35,12 +35,12 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}.side{
 .overall-breakdown{display:flex;gap:18px;margin-top:14px}
 .overall-breakdown span{font-size:10px;color:#8291aa}
 .overall-breakdown b{display:block;font-size:16px;color:#fff;margin-top:2px}
-.profile-link{display:inline-flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #273b59;border-radius:11px;background:#0b1728;color:#dce6f8;font-weight:800;transition:.2s}
+.profile-avatar{width:38px;height:38px;border-radius:12px;object-fit:cover;display:block}.profile-link{display:inline-flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #273b59;border-radius:11px;background:#0b1728;color:#dce6f8;font-weight:800;transition:.2s}
 .profile-link:hover{background:#14243b;border-color:#46618a;transform:translateY(-1px)}
 .settings-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#17294a;font-size:16px}
 .profile-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.profile-card{padding:0}.face-panel{padding:22px}
 .face-camera{width:100%;aspect-ratio:4/3;max-height:420px;object-fit:cover;border-radius:15px;background:#02070d;border:1px solid #2a3d59;display:block}
-.face-preview{display:none}.face-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.profile-preview{width:110px;height:110px;border-radius:18px;object-fit:cover;display:block;margin:12px 0;border:1px solid #2a3d59}.profile-placeholder{width:110px;height:110px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,#6978ff,#43d7ff);font-size:28px;font-weight:900;margin:12px 0}.face-preview{display:none}.face-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
 .face-note{font-size:11px;color:#8291aa;line-height:1.6;margin-top:12px}.face-status{margin-top:12px;min-height:20px;color:#8fa0b8;font-size:12px}
 @media(max-width:900px){.profile-grid{grid-template-columns:1fr}}
 @media(max-width:900px){.overall-box{min-width:0}}
@@ -69,6 +69,8 @@ def init():
         c.execute("alter table students add column roll_no text")
     if "group_name" not in cols:
         c.execute("alter table students add column group_name text")
+    if "profile_picture" not in cols:
+        c.execute("alter table students add column profile_picture text")
     subject_cols={row["name"] for row in c.execute("pragma table_info(subjects)").fetchall()}
     if "teacher_id" not in subject_cols:
         c.execute("alter table subjects add column teacher_id integer")
@@ -173,7 +175,12 @@ def page(title,body,**ctx):
     u=me()
     nav=""
     if u:
-        nav=f'<aside class="side"><div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
+        avatar_html='<div class="logo">AI</div>'
+        if u and u["role"]=="STUDENT":
+            cc=db(); pp=cc.execute("select profile_picture from students where id=?",(u["student_id"],)).fetchone(); cc.close()
+            if pp and pp["profile_picture"]:
+                avatar_html=f'<img class="profile-avatar" src="{pp["profile_picture"]}" alt="Profile">'
+        nav=f'<aside class="side"><div class="brand"><div class="logo-wrap">{avatar_html}</div><div><b>AttendAI</b><small>University System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
         if u["role"] in ("ADMIN","TEACHER"): nav+='<a href="/attendance">✓ Attendance</a><a href="/lectures">◷ Lectures</a>'
         if u["role"]=="ADMIN": nav+='<a href="/import">⇧ PDF Import</a><a href="/students">♙ Students</a><a href="/lectures">◷ Lectures</a><a href="/cameras">◉ Cameras</a><a href="/recognition">◎ Recognition</a><a href="/reports">▥ Reports</a><a href="/audit">⌁ Audit Logs</a>'
         if u["role"]=="STUDENT": nav+='<a href="/student/attendance">▤ My Attendance</a>'
@@ -390,54 +397,67 @@ def student_profile():
     u=me(); c=db()
     st=c.execute("select * from students where id=?",(u["student_id"],)).fetchone()
     if request.method=="POST":
-        name=request.form.get("name","").strip()
         username=request.form.get("username","").strip()
         new_password=request.form.get("password","").strip()
-        if not name or not username:
-            flash("Name and username are required.","danger")
+        profile_picture=request.form.get("profile_picture","").strip()
+        if not username:
+            flash("Username is required.","danger")
         else:
             conflict=c.execute("select id from users where username=? and id<>?",(username,u["id"])).fetchone()
             if conflict:
                 flash("That username is already in use.","danger")
             else:
-                c.execute("update students set name=? where id=?",(name,st["id"]))
+                if profile_picture:
+                    try:
+                        header,payload=profile_picture.split(",",1); raw=base64.b64decode(payload,validate=True)
+                        if not header.startswith("data:image/") or len(raw)>2_500_000: raise ValueError()
+                    except Exception:
+                        profile_picture=""
+                        flash("Profile picture could not be saved. Please use a smaller image.","danger")
+                c.execute("update students set profile_picture=? where id=?",(profile_picture or st["profile_picture"],st["id"]))
                 if new_password:
-                    c.execute("update users set username=?,password=?,display_name=? where id=?",(username,new_password,name,u["id"]))
+                    c.execute("update users set username=?,password=? where id=?",(username,new_password,u["id"]))
                 else:
-                    c.execute("update users set username=?,display_name=? where id=?",(username,name,u["id"]))
+                    c.execute("update users set username=? where id=?",(username,u["id"]))
                 c.commit(); c.close()
                 flash("Profile updated successfully.","success")
                 return redirect(url_for("student_profile"))
     face_count=c.execute("select count(*) from student_face_profiles where student_id=? and is_active=1",(st["id"],)).fetchone()[0]
     c.close()
-    body=f'''<div class="hero"><div><span class="pill">STUDENT PROFILE</span><h2>Edit Profile</h2><p class="muted">Update your account details and manage the face used for attendance recognition.</p></div><a class="btn" href="/dashboard">← Back to dashboard</a></div>
+    profile_src=st["profile_picture"] or ""
+    profile_preview=f'<img class="profile-preview" src="{profile_src}" alt="Profile picture">' if profile_src else '<div class="profile-placeholder">AI</div>'
+    body=f'''<div class="hero"><div><span class="pill">STUDENT PROFILE</span><h2>Edit Profile</h2><p class="muted">Update your username, profile picture and face-recognition enrollment.</p></div><a class="btn" href="/dashboard">← Back to dashboard</a></div>
     <div class="profile-grid">
-      <div class="card profile-card"><div class="head"><h3>Personal & Account Details</h3><span class="pill">SELF EDIT</span></div>
-        <form class="form" method="post">
-          <label>Name<input name="name" value="{st["name"]}" required></label>
+      <div class="card profile-card">
+        <div class="head"><h3>Personal & Account Details</h3><span class="pill">SELF EDIT</span></div>
+        <form class="form" method="post" id="profileForm">
           <label>Username<input name="username" value="{u["username"]}" required></label>
           <label>New Password<input name="password" type="password" placeholder="Leave blank to keep current password"></label>
+          <label>Name<input value="{st["name"]}" disabled></label>
           <label>Admission No.<input value="{st["enrollment_no"]}" disabled></label>
           <label>Roll No.<input value="{st["roll_no"] or "—"}" disabled></label>
           <label>Course / Semester<input value="{st["course"]} · Semester {st["semester"]}" disabled></label>
           <label>Section / Group<input value="{st["section"]} · {st["group_name"] or "—"}" disabled></label>
-          <div class="wide"><small class="muted">University-issued admission, roll, course, semester, section and group data are protected from student-side editing.</small></div>
+          <div class="wide"><small class="muted">Name and all university-issued academic details are protected from student-side editing.</small></div>
+          <div class="wide profile-picture-box"><h3 style="margin:0 0 5px">Profile Picture</h3><p class="muted small">Choose a picture to replace the AttendAI logo shown beside your account.</p>{profile_preview}<input id="profilePictureFile" type="file" accept="image/*"><input id="profilePictureData" name="profile_picture" type="hidden"></div>
           <div class="wide"><button class="btn primary" type="submit">Save Profile Changes</button></div>
         </form>
       </div>
-      <div class="card profile-card"><div class="head"><h3>Face Recognition</h3><span class="pill">{face_count} saved</span></div><div class="face-panel">
+      <div class="card profile-card"><div class="head"><h3>Face Recognition</h3><span class="pill">{face_count} saved scans</span></div><div class="face-panel">
         <video id="faceCamera" class="face-camera" autoplay playsinline muted></video><canvas id="faceCanvas" class="face-preview"></canvas>
         <div class="face-actions"><button type="button" class="btn primary" id="startFace">◉ Start Camera</button><button type="button" class="btn green" id="captureFace" disabled>◎ Scan & Save Face</button><button type="button" class="btn" id="stopFace" disabled>■ Stop</button></div>
-        <div id="faceStatus" class="face-status">Camera is off. Click Start Camera to enroll or update your face.</div>
-        <div class="face-note"><b>How it works:</b> allow camera access, keep your face centered and well lit, then click <b>Scan & Save Face</b>. The captured enrollment image is stored with your student account for future face-recognition attendance.</div>
+        <div id="faceStatus" class="face-status">Camera is off. Click Start Camera to add another face scan.</div>
+        <div class="face-note"><b>Multiple scans are kept.</b> Every scan becomes a separate enrollment sample. Existing face-recognition data is never deleted when you scan again.</div>
       </div></div>
     </div>
     <script>
     (()=>{{
       const video=document.getElementById('faceCamera'),canvas=document.getElementById('faceCanvas'),start=document.getElementById('startFace'),capture=document.getElementById('captureFace'),stop=document.getElementById('stopFace'),status=document.getElementById('faceStatus');let stream=null;
+      const file=document.getElementById('profilePictureFile'),hidden=document.getElementById('profilePictureData');
+      if(file) file.onchange=()=>{{const f=file.files[0];if(!f)return;const reader=new FileReader();reader.onload=()=>hidden.value=reader.result;reader.readAsDataURL(f)}};
       start.onclick=async()=>{{try{{stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode:"user",width:{{ideal:1280}},height:{{ideal:720}}}},audio:false}});video.srcObject=stream;capture.disabled=false;stop.disabled=false;start.disabled=true;status.textContent="Camera active. Center your face and click Scan & Save Face."}}catch(e){{status.textContent="Camera access failed. Please allow camera permission and use HTTPS."}}}};
       stop.onclick=()=>{{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;capture.disabled=true;stop.disabled=true;start.disabled=false;status.textContent="Camera stopped."}};
-      capture.onclick=async()=>{{if(!stream)return;canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;canvas.getContext("2d").drawImage(video,0,0,canvas.width,canvas.height);const data=canvas.toDataURL("image/jpeg",0.88);capture.disabled=true;status.textContent="Saving face enrollment…";try{{const res=await fetch("/student/face",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{image:data}})}});const out=await res.json();status.textContent=out.message||"Face saved.";if(out.ok)setTimeout(()=>location.reload(),700)}}catch(e){{status.textContent="Could not save face enrollment. Please try again.";capture.disabled=false}}}};
+      capture.onclick=async()=>{{if(!stream)return;canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;canvas.getContext("2d").drawImage(video,0,0,canvas.width,canvas.height);const data=canvas.toDataURL("image/jpeg",0.88);capture.disabled=true;status.textContent="Saving new face enrollment…";try{{const res=await fetch("/student/face",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{image:data}})}});const out=await res.json();status.textContent=out.message||"Face saved.";if(out.ok)setTimeout(()=>location.reload(),700)}}catch(e){{status.textContent="Could not save face enrollment. Please try again.";capture.disabled=false}}}};
       window.addEventListener("beforeunload",()=>{{if(stream)stream.getTracks().forEach(t=>t.stop())}});
     }})();
     </script>'''
