@@ -453,8 +453,8 @@ def student_face():
         _,payload=image.split(",",1); raw=base64.b64decode(payload,validate=True)
         if len(raw)>2_500_000: return {{"ok":False,"message":"Image is too large. Please retry."}},400
     except Exception: return {{"ok":False,"message":"Could not read the captured image."}},400
-    c=db(); c.execute("update student_face_profiles set is_active=0 where student_id=?",(u["student_id"],)); c.execute("insert into student_face_profiles(student_id,image_data,captured_at,is_active) values(?,?,CURRENT_TIMESTAMP,1)",(u["student_id"],image)); c.commit(); c.close()
-    return {{"ok":True,"message":"Face enrollment saved successfully. This image is now available for future face recognition."}}
+    c=db(); c.execute("insert into student_face_profiles(student_id,image_data,captured_at,is_active) values(?,?,CURRENT_TIMESTAMP,1)",(u["student_id"],image)); c.commit(); c.close()
+    return {{"ok":True,"message":"New face enrollment saved. Existing face scans were kept."}}
 
 @app.route("/student/attendance")
 @need("STUDENT")
