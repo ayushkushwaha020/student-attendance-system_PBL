@@ -304,6 +304,16 @@
       "slots": [
         5
       ]
+    },
+    {
+      "day": "Thursday",
+      "subject_code": "MENTOR",
+      "subject_name": "Mentor-Mentee",
+      "teacher_code": null,
+      "group": null,
+      "slots": [
+        9
+      ]
     }
   ]
 }
