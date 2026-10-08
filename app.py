@@ -568,33 +568,81 @@ def ensure_timetable_and_absences():
     today=datetime.now(IST).date()
     end_date=max(today,APP_START_DATE)
     slots={int(x["no"]):x for x in tt["slots"]}
+    labels={x["label"]:int(x["no"]) for x in tt["slots"]}
     day_numbers={"Monday":0,"Tuesday":1,"Wednesday":2,"Thursday":3,"Friday":4}
     c=db()
+
+    # Migrate old multi-slot lecture records into one lecture per slot.
+    # Older builds stored e.g. Slot III-V as a single lecture, which caused
+    # one attendance mark to count for three timetable periods.
+    combined=c.execute("""select * from lectures
+        where status='PDF_SCHEDULED' and lecture_date>=? and course='B.Tech' and section='C'
+        and instr(ifnull(slot_label,''),'-')>0""",(APP_START_DATE.isoformat(),)).fetchall()
+    for old in combined:
+        label=(old["slot_label"] or "").replace("Slot ","").strip()
+        parts=label.split("-",1)
+        if len(parts)!=2 or parts[0] not in labels or parts[1] not in labels:
+            continue
+        first_no,last_no=labels[parts[0]],labels[parts[1]]
+        if last_no<=first_no:
+            continue
+
+        old_attendance=c.execute("select * from attendance where lecture_id=?",(old["id"],)).fetchall()
+        first_slot=slots[first_no]
+        c.execute("""update lectures set lecture_no=?,start_time=?,end_time=?,slot_label=?
+            where id=?""",
+            (first_no,first_slot["start"],first_slot["end"],"Slot "+first_slot["label"],old["id"]))
+
+        for slot_no in range(first_no+1,last_no+1):
+            if slot_no not in slots:
+                continue
+            sl=slots[slot_no]
+            existing=c.execute("""select id from lectures where subject_id=? and lecture_date=? and
+                lecture_no=? and course='B.Tech' and section='C' and ifnull(group_name,'')=ifnull(?, '')""",
+                (old["subject_id"],old["lecture_date"],slot_no,old["group_name"])).fetchone()
+            if existing:
+                new_id=existing["id"]
+            else:
+                c.execute("""insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,
+                    start_time,end_time,group_name,slot_label,lecture_day,effective_from,status,source_file_id)
+                    values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (old["subject_id"],old["teacher_id"],slot_no,old["course"],old["section"],old["room"],
+                     old["lecture_date"],sl["start"],sl["end"],old["group_name"],"Slot "+sl["label"],
+                     old["lecture_day"],old["effective_from"],old["status"],old["source_file_id"]))
+                new_id=c.execute("select last_insert_rowid()").fetchone()[0]
+            for a in old_attendance:
+                c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
+                    values(?,?,?,?,?,?)
+                    on conflict(student_id,lecture_id,attendance_date) do update set
+                    subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by""",
+                    (a["student_id"],a["subject_id"],new_id,a["attendance_date"],a["source"],a["marked_by"]))
+
+    # Generate one lecture record for EVERY timetable slot, not one record
+    # for a block of continuous slots.
     for n in range((end_date-APP_START_DATE).days+1):
         d=APP_START_DATE+timedelta(days=n)
         day=d.strftime("%A")
         for e in tt["entries"]:
             if day_numbers.get(e["day"])!=d.weekday():
                 continue
-            first=slots[e["slots"][0]]
-            last=slots[e["slots"][-1]]
             tid=_get_schedule_teacher(c,e.get("teacher_code"))
             sid=_get_schedule_subject(c,e["subject_code"],e["subject_name"],tid)
             group=e.get("group")
-            exists=c.execute("""select id from lectures where subject_id=? and lecture_date=? and lecture_no=? and
-                course='B.Tech' and section='C' and ifnull(group_name,'')=ifnull(?, '')""",
-                (sid,d.isoformat(),e["slots"][0],group)).fetchone()
-            if not exists:
-                label=slots[e["slots"][0]]["label"]
-                if len(e["slots"])>1:
-                    label += "-" + slots[e["slots"][-1]]["label"]
-                c.execute("""insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,
-                    start_time,end_time,group_name,slot_label,lecture_day,effective_from,status)
-                    values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (sid,tid,e["slots"][0],"B.Tech","C",tt["room"],d.isoformat(),first["start"],last["end"],
-                     group,"Slot "+label,day,tt["effective_from"],"PDF_SCHEDULED"))
+            for slot_no in e["slots"]:
+                sl=slots[slot_no]
+                exists=c.execute("""select id from lectures where subject_id=? and lecture_date=? and lecture_no=? and
+                    course='B.Tech' and section='C' and ifnull(group_name,'')=ifnull(?, '')""",
+                    (sid,d.isoformat(),slot_no,group)).fetchone()
+                if not exists:
+                    c.execute("""insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,
+                        start_time,end_time,group_name,slot_label,lecture_day,effective_from,status)
+                        values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (sid,tid,slot_no,"B.Tech","C",tt["room"],d.isoformat(),sl["start"],sl["end"],
+                         group,"Slot "+sl["label"],day,tt["effective_from"],"PDF_SCHEDULED"))
     c.commit()
 
+    # Every completed timetable slot gets an attendance row. If nobody has
+    # marked the student present, the slot is explicitly AUTO_ABSENT.
     now=datetime.now(IST)
     lectures=c.execute("""select * from lectures where lecture_date>=? and lecture_date<=?
         and course='B.Tech' and section='C' and status='PDF_SCHEDULED'""",
@@ -617,7 +665,8 @@ def ensure_timetable_and_absences():
             if not c.execute("select id from attendance where student_id=? and lecture_id=? and attendance_date=?",
                              (st["id"],lec["id"],lec["lecture_date"])).fetchone():
                 c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
-                    values(?,?,?,?,?,NULL)""",(st["id"],lec["subject_id"],lec["id"],lec["lecture_date"],"AUTO_ABSENT"))
+                    values(?,?,?,?,?,NULL)""",
+                    (st["id"],lec["subject_id"],lec["id"],lec["lecture_date"],"AUTO_ABSENT"))
     c.commit()
     c.close()
 
