@@ -432,7 +432,7 @@
       "code": "BECS306",
       "name": "Discrete Structure",
       "credits": 3,
-      "teacher_code": "T004"
+      "teacher_code": null
     },
     {
       "code": "BEAI301",
@@ -450,7 +450,7 @@
       "code": "BEAI301P",
       "name": "Introduction to IOT Lab",
       "credits": 1,
-      "teacher_code": "T006"
+      "teacher_code": "T004"
     },
     {
       "code": "BECS305P",
