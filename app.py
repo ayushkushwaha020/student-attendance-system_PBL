@@ -443,9 +443,20 @@ def dashboard():
         ls=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where (l.teacher_id=? or s.teacher_id=?) and s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],u["teacher_id"])).fetchall(); c.close()
         rows="".join(f'<tr onclick="location.href=\'/attendance?lecture_id={l["id"]}\'" style="cursor:pointer"><td>{l["lecture_date"]}</td><td>Slot {l["lecture_no"]}</td><td><b>{l["subject_name"]}</b><small>{l["code"]}</small></td><td>{l["start_time"] or ""}–{l["end_time"] or ""}</td><td>{l["room"]}</td></tr>' for l in ls) or '<tr><td colspan="5">No assigned lectures.</td></tr>'
         return page("Teacher Dashboard",f'<div class="hero"><div><span class="pill">TEACHER WORKSPACE</span><h2>Hello, {t["name"]}</h2><p class="muted">Click any lecture to open its attendance sheet.</p></div></div><div class="card"><div class="head"><h3>All Assigned Lectures</h3><span class="pill">{len(ls)} lectures</span></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Time</th><th>Room</th></tr>{rows}</table></div></div>')
-    stats=[("Students",c.execute("select count(*) from students").fetchone()[0]),("Teachers",c.execute("select count(*) from teachers").fetchone()[0]),("Cameras",c.execute("select count(*) from cameras").fetchone()[0]),("Attendance",c.execute("select count(*) from attendance").fetchone()[0])]; c.close()
+    students=c.execute("select * from students order by name").fetchall()
+    teachers=c.execute("select * from teachers order by name").fetchall()
+    stats=[("Students",len(students)),("Teachers",len(teachers)),("Cameras",c.execute("select count(*) from cameras").fetchone()[0]),("Attendance",c.execute("select count(*) from attendance").fetchone()[0])]
+    c.close()
     cards="".join(f'<div class="card stat"><span>{n}</span><b>{v}</b></div>' for n,v in stats)
-    return page("Admin Dashboard",f'<div class="hero"><div><span class="pill">ADMIN CONTROL CENTER</span><h2>University Attendance</h2><p class="muted">Manage students, cameras, PDF data and attendance overrides.</p></div><a class="btn primary" href="/import">Import PDF →</a></div><div class="grid">{cards}</div>')
+    student_rows="".join(f'<tr><td><b>{st["name"]}</b></td><td>{st["enrollment_no"]}</td><td>{st["roll_no"] or "—"}</td><td>{st["course"]}</td><td>Sem {st["semester"]}</td><td>{st["section"]}</td><td>{st["group_name"] or "—"}</td></tr>' for st in students)
+    teacher_rows="".join(f'<tr><td><b>{t["name"]}</b></td><td>{t["employee_code"]}</td><td>{t["id"]}</td></tr>' for t in teachers)
+    body=f'''<div class="hero"><div><span class="pill">ADMIN CONTROL CENTER</span><h2>University Attendance</h2><p class="muted">Manage students, teachers, cameras, PDF data and attendance overrides.</p></div><a class="btn primary" href="/import">Import PDF →</a></div>
+    <div class="grid">{cards}</div>
+    <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start">
+      <div class="card"><div class="head"><h3>Students</h3><span class="pill">{len(students)} students</span></div><div class="table" style="max-height:650px;overflow:auto"><table><tr><th>Name</th><th>Admission</th><th>Roll No.</th><th>Course</th><th>Semester</th><th>Section</th><th>Group</th></tr>{student_rows}</table></div></div>
+      <div class="card"><div class="head"><h3>Teachers</h3><span class="pill">{len(teachers)} teachers</span></div><div class="table" style="max-height:650px;overflow:auto"><table><tr><th>Name</th><th>Employee Code</th><th>ID</th></tr>{teacher_rows}</table></div></div>
+    </div>'''
+    return page("Admin Dashboard",body)
 
 @app.route("/attendance",methods=["GET","POST"])
 @need("ADMIN","TEACHER")
