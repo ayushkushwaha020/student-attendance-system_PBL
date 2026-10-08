@@ -492,7 +492,12 @@ def attendance():
         c.commit(); c.close(); flash("Attendance saved successfully.","success")
         return redirect(url_for("attendance",lecture_id=lecture_id))
     if selected:
-        students=c.execute("""select * from students where course=? and section=? and (group_name is null or group_name='' or group_name=?) order by name""",(selected["course"],selected["section"],selected["group_name"] or "")).fetchall()
+        # For an all-section lecture, show every student in the course/section.
+        # Only group-specific lectures are filtered to that group.
+        if selected["group_name"]:
+            students=c.execute("""select * from students where course=? and section=? and group_name=? order by name""",(selected["course"],selected["section"],selected["group_name"])).fetchall()
+        else:
+            students=c.execute("""select * from students where course=? and section=? order by name""",(selected["course"],selected["section"])).fetchall()
         present={x["student_id"] for x in c.execute("select student_id from attendance where lecture_id=? and source in ('TEACHER_OVERRIDE','ADMIN_OVERRIDE','AI_RECOGNITION')",(selected["id"],)).fetchall()}
     else: students=[]; present=set()
     c.close()
