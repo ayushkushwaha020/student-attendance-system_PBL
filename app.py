@@ -1,5 +1,5 @@
 from flask import Flask, request, redirect, url_for, session, render_template_string, flash, send_file
-import sqlite3, os, json, csv, io
+import sqlite3, os, json, csv, io, base64
 from datetime import datetime
 from functools import wraps
 
@@ -35,6 +35,14 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}.side{
 .overall-breakdown{display:flex;gap:18px;margin-top:14px}
 .overall-breakdown span{font-size:10px;color:#8291aa}
 .overall-breakdown b{display:block;font-size:16px;color:#fff;margin-top:2px}
+.profile-link{display:inline-flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #273b59;border-radius:11px;background:#0b1728;color:#dce6f8;font-weight:800;transition:.2s}
+.profile-link:hover{background:#14243b;border-color:#46618a;transform:translateY(-1px)}
+.settings-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#17294a;font-size:16px}
+.profile-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.profile-card{padding:0}.face-panel{padding:22px}
+.face-camera{width:100%;aspect-ratio:4/3;max-height:420px;object-fit:cover;border-radius:15px;background:#02070d;border:1px solid #2a3d59;display:block}
+.face-preview{display:none}.face-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.face-note{font-size:11px;color:#8291aa;line-height:1.6;margin-top:12px}.face-status{margin-top:12px;min-height:20px;color:#8fa0b8;font-size:12px}
+@media(max-width:900px){.profile-grid{grid-template-columns:1fr}}
 @media(max-width:900px){.overall-box{min-width:0}}
 @media(max-width:900px){.side{width:70px}.brand div:not(.logo),.nav a span{display:none}.main{margin-left:70px;width:calc(100% - 70px)}.grid{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:1fr}.hero{flex-direction:column}}
 """
@@ -54,6 +62,7 @@ def init():
     CREATE TABLE IF NOT EXISTS lectures(id INTEGER PRIMARY KEY,subject_id INTEGER,teacher_id INTEGER,lecture_no INTEGER,course TEXT,section TEXT,room TEXT,lecture_date TEXT,start_time TEXT,end_time TEXT,group_name TEXT,slot_label TEXT,lecture_day TEXT,effective_from TEXT,status TEXT DEFAULT 'SCHEDULED',source_file_id INTEGER);
     CREATE TABLE IF NOT EXISTS attendance(id INTEGER PRIMARY KEY,student_id INTEGER,subject_id INTEGER,lecture_id INTEGER,attendance_date TEXT,source TEXT,marked_by INTEGER,UNIQUE(student_id,lecture_id,attendance_date));
     CREATE TABLE IF NOT EXISTS cameras(id INTEGER PRIMARY KEY,camera_name TEXT,location TEXT,stream_url TEXT,authorized INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS student_face_profiles(id INTEGER PRIMARY KEY,student_id INTEGER NOT NULL,image_data TEXT NOT NULL,captured_at TEXT DEFAULT CURRENT_TIMESTAMP,is_active INTEGER DEFAULT 1);
     """)
     cols={row["name"] for row in c.execute("pragma table_info(students)").fetchall()}
     if "roll_no" not in cols:
@@ -171,7 +180,7 @@ def page(title,body,**ctx):
         nav+='<a href="/logout">↪ Logout</a></nav></aside>'
     flashes="".join(f'<div class="flash">{m}</div>' for m in [x[1] for x in []])
     html=f"""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>{CSS}</style></head><body>
-    <div class="shell">{nav}<main class="main"><header class="top"><div><span class="pill">AI ATTENDANCE</span><h1>{title}</h1></div><div class="muted">{u["display_name"] if u else "Secure Login"}</div></header><section class="content">{flashes}{body}</section></main></div></body></html>"""
+    <div class="shell">{nav}<main class="main"><header class="top"><div><span class="pill">AI ATTENDANCE</span><h1>{title}</h1></div><div>{(f'<a class="profile-link" href="/student/profile" title="Edit profile"><span>{u["display_name"]}</span><span class="settings-icon">⚙</span></a>' if u and u["role"]=="STUDENT" else f'<span class="muted">{u["display_name"] if u else "Secure Login"}</span>')}</div></header><section class="content">{flashes}{body}</section></main></div></body></html>"""
     return html
 
 @app.route("/")
@@ -374,6 +383,78 @@ def attendance():
     opts="".join(f'<option value="{l["id"]}">{l["lecture_date"]} · Slot {l["lecture_no"]} · {l["subject_name"]} · {l["start_time"] or ""}-{l["end_time"] or ""} · Room {l["room"]}</option>' for l in lectures)
     checks="".join(f'<label style="display:block;padding:7px"><input type="checkbox" name="student_id" value="{st["id"]}" {"checked" if st["id"] in present_ids else ""}> {st["name"]} <span class="muted">({st["enrollment_no"]})</span></label>' for st in students)
     return page("Attendance Register",f"""<div class="card"><div class="head"><h3>Select lecture</h3><span class="pill">{len(students)} students</span></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" onchange="if(this.value) location.href='/attendance?lecture_id='+this.value" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Attendance</button></div></form></div>""")
+
+@app.route("/student/profile",methods=["GET","POST"])
+@need("STUDENT")
+def student_profile():
+    u=me(); c=db()
+    st=c.execute("select * from students where id=?",(u["student_id"],)).fetchone()
+    if request.method=="POST":
+        name=request.form.get("name","").strip()
+        username=request.form.get("username","").strip()
+        new_password=request.form.get("password","").strip()
+        if not name or not username:
+            flash("Name and username are required.","danger")
+        else:
+            conflict=c.execute("select id from users where username=? and id<>?",(username,u["id"])).fetchone()
+            if conflict:
+                flash("That username is already in use.","danger")
+            else:
+                c.execute("update students set name=? where id=?",(name,st["id"]))
+                if new_password:
+                    c.execute("update users set username=?,password=?,display_name=? where id=?",(username,new_password,name,u["id"]))
+                else:
+                    c.execute("update users set username=?,display_name=? where id=?",(username,name,u["id"]))
+                c.commit(); c.close()
+                flash("Profile updated successfully.","success")
+                return redirect(url_for("student_profile"))
+    face_count=c.execute("select count(*) from student_face_profiles where student_id=? and is_active=1",(st["id"],)).fetchone()[0]
+    c.close()
+    body=f'''<div class="hero"><div><span class="pill">STUDENT PROFILE</span><h2>Edit Profile</h2><p class="muted">Update your account details and manage the face used for attendance recognition.</p></div><a class="btn" href="/dashboard">← Back to dashboard</a></div>
+    <div class="profile-grid">
+      <div class="card profile-card"><div class="head"><h3>Personal & Account Details</h3><span class="pill">SELF EDIT</span></div>
+        <form class="form" method="post">
+          <label>Name<input name="name" value="{st["name"]}" required></label>
+          <label>Username<input name="username" value="{u["username"]}" required></label>
+          <label>New Password<input name="password" type="password" placeholder="Leave blank to keep current password"></label>
+          <label>Admission No.<input value="{st["enrollment_no"]}" disabled></label>
+          <label>Roll No.<input value="{st["roll_no"] or "—"}" disabled></label>
+          <label>Course / Semester<input value="{st["course"]} · Semester {st["semester"]}" disabled></label>
+          <label>Section / Group<input value="{st["section"]} · {st["group_name"] or "—"}" disabled></label>
+          <div class="wide"><small class="muted">University-issued admission, roll, course, semester, section and group data are protected from student-side editing.</small></div>
+          <div class="wide"><button class="btn primary" type="submit">Save Profile Changes</button></div>
+        </form>
+      </div>
+      <div class="card profile-card"><div class="head"><h3>Face Recognition</h3><span class="pill">{face_count} saved</span></div><div class="face-panel">
+        <video id="faceCamera" class="face-camera" autoplay playsinline muted></video><canvas id="faceCanvas" class="face-preview"></canvas>
+        <div class="face-actions"><button type="button" class="btn primary" id="startFace">◉ Start Camera</button><button type="button" class="btn green" id="captureFace" disabled>◎ Scan & Save Face</button><button type="button" class="btn" id="stopFace" disabled>■ Stop</button></div>
+        <div id="faceStatus" class="face-status">Camera is off. Click Start Camera to enroll or update your face.</div>
+        <div class="face-note"><b>How it works:</b> allow camera access, keep your face centered and well lit, then click <b>Scan & Save Face</b>. The captured enrollment image is stored with your student account for future face-recognition attendance.</div>
+      </div></div>
+    </div>
+    <script>
+    (()=>{{
+      const video=document.getElementById('faceCamera'),canvas=document.getElementById('faceCanvas'),start=document.getElementById('startFace'),capture=document.getElementById('captureFace'),stop=document.getElementById('stopFace'),status=document.getElementById('faceStatus');let stream=null;
+      start.onclick=async()=>{{try{{stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode:"user",width:{{ideal:1280}},height:{{ideal:720}}}},audio:false}});video.srcObject=stream;capture.disabled=false;stop.disabled=false;start.disabled=true;status.textContent="Camera active. Center your face and click Scan & Save Face."}}catch(e){{status.textContent="Camera access failed. Please allow camera permission and use HTTPS."}}}};
+      stop.onclick=()=>{{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;capture.disabled=true;stop.disabled=true;start.disabled=false;status.textContent="Camera stopped."}};
+      capture.onclick=async()=>{{if(!stream)return;canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;canvas.getContext("2d").drawImage(video,0,0,canvas.width,canvas.height);const data=canvas.toDataURL("image/jpeg",0.88);capture.disabled=true;status.textContent="Saving face enrollment…";try{{const res=await fetch("/student/face",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{image:data}})}});const out=await res.json();status.textContent=out.message||"Face saved.";if(out.ok)setTimeout(()=>location.reload(),700)}}catch(e){{status.textContent="Could not save face enrollment. Please try again.";capture.disabled=false}}}};
+      window.addEventListener("beforeunload",()=>{{if(stream)stream.getTracks().forEach(t=>t.stop())}});
+    }})();
+    </script>'''
+    return page("Edit Profile",body)
+
+@app.route("/student/face",methods=["POST"])
+@need("STUDENT")
+def student_face():
+    u=me(); data=request.get_json(silent=True) or {{}}
+    image=data.get("image","")
+    if not image.startswith("data:image/"): return {{"ok":False,"message":"Invalid face image."}},400
+    try:
+        _,payload=image.split(",",1); raw=base64.b64decode(payload,validate=True)
+        if len(raw)>2_500_000: return {{"ok":False,"message":"Image is too large. Please retry."}},400
+    except Exception: return {{"ok":False,"message":"Could not read the captured image."}},400
+    c=db(); c.execute("update student_face_profiles set is_active=0 where student_id=?",(u["student_id"],)); c.execute("insert into student_face_profiles(student_id,image_data,captured_at,is_active) values(?,?,CURRENT_TIMESTAMP,1)",(u["student_id"],image)); c.commit(); c.close()
+    return {{"ok":True,"message":"Face enrollment saved successfully. This image is now available for future face recognition."}}
 
 @app.route("/student/attendance")
 @need("STUDENT")
