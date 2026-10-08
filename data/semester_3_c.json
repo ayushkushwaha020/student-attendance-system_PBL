@@ -1,0 +1,480 @@
+{
+  "source": "Sharda University Agra PDFs uploaded by user",
+  "program": "B.Tech (CSE-AIML)",
+  "course": "B.Tech",
+  "semester": 3,
+  "section": "C",
+  "room": "222",
+  "students": [
+    {
+      "admission_no": "25ASETCSA003",
+      "roll_no": "25012010026",
+      "name": "ARPIT SHARMA",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA011",
+      "roll_no": "25012010033",
+      "name": "AYUSH SHARMA",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA012",
+      "roll_no": "25012010028",
+      "name": "Aryan Bhadoria",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA013",
+      "roll_no": "25012010061",
+      "name": "HARSHIT SHARMA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA015",
+      "roll_no": "25012010043",
+      "name": "DEVRAJ SINGH",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA020",
+      "roll_no": "25012010032",
+      "name": "AYUSH KUSHWAHA",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA023",
+      "roll_no": "25012010038",
+      "name": "BHUPENDRA TARKAR",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA025",
+      "roll_no": "25012010057",
+      "name": "GULFAN KHAN",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA028",
+      "roll_no": "25012010073",
+      "name": "KAVITA RAJPUT",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA029",
+      "roll_no": "25012010071",
+      "name": "KARAN",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA042",
+      "roll_no": "25012010089",
+      "name": "MUSKAN KUMARI",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA049",
+      "roll_no": "25012010091",
+      "name": "NEEYATI DIXIT",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA054",
+      "roll_no": "25012010051",
+      "name": "DIVYANSH MITTAL",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA058",
+      "roll_no": "25012010072",
+      "name": "KARAN SINGH",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA059",
+      "roll_no": "25012010088",
+      "name": "MOHIT SHARMA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA061",
+      "roll_no": "25012010053",
+      "name": "DIVYANSHU SINGH",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA062",
+      "roll_no": "25012010081",
+      "name": "MAHIMA GUPTA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA068",
+      "roll_no": "25012010025",
+      "name": "ARPIT BAGHEL",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA075",
+      "roll_no": "25012010034",
+      "name": "BHANU PRATAP GAUTAM",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA078",
+      "roll_no": "25012010058",
+      "name": "HARSH DEVBRAT RAI",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA080",
+      "roll_no": "25012010062",
+      "name": "HARSHIT VERMA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA082",
+      "roll_no": "25012010041",
+      "name": "DAKSH SINGH",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA083",
+      "roll_no": "25012010083",
+      "name": "MANSI SHARMA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA084",
+      "roll_no": "25012010064",
+      "name": "JEET KUMAR SHARMA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA085",
+      "roll_no": "25012010052",
+      "name": "DIVYANSHI",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA089",
+      "roll_no": "25012010042",
+      "name": "DEEPALI BALIYAN",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA092",
+      "roll_no": "25012010030",
+      "name": "AVANTI GOYAL",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA093",
+      "roll_no": "25012010074",
+      "name": "KIRNA TANEJA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA097",
+      "roll_no": "25012010087",
+      "name": "MOHD YUSUF RAZA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA098",
+      "roll_no": "25012010070",
+      "name": "KANISHKA FAUZDAR",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA101",
+      "roll_no": "25012010050",
+      "name": "DIVYAANSH VASHISTHA",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA104",
+      "roll_no": "25012010047",
+      "name": "DIKSHA YADAV",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA106",
+      "roll_no": "25012010075",
+      "name": "KOVVURI NADHA NITHISH REDDY",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA107",
+      "roll_no": "25012010066",
+      "name": "K NARAYANA NIKHIL REDDY",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA111",
+      "roll_no": "25012010076",
+      "name": "KRITIKA MISHRA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA116",
+      "roll_no": "25012010060",
+      "name": "HARSHIT JAIN",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA117",
+      "roll_no": "25012010029",
+      "name": "ARYAN SHARMA",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA118",
+      "roll_no": "25012010049",
+      "name": "DIVY BAHAL",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA120",
+      "roll_no": "25012010048",
+      "name": "DIPANSHU BAGHEL",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA122",
+      "roll_no": "25012010079",
+      "name": "LOVE SINGH",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA129",
+      "roll_no": "25012010055",
+      "name": "GARIMA SIKARWAR",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA130",
+      "roll_no": "25012010090",
+      "name": "Nainika Gupta",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA131",
+      "roll_no": "25012010036",
+      "name": "BHOOMIKA GUPTA",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA133",
+      "roll_no": "25012010037",
+      "name": "BHUMI SONE",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA135",
+      "roll_no": "25012010078",
+      "name": "KUNUMURI CHARAN TEJA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA136",
+      "roll_no": "25012010068",
+      "name": "KADIMI RUTHVIKA",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA137",
+      "roll_no": "25012010086",
+      "name": "MAYANK DEV",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA140",
+      "roll_no": "25012010035",
+      "name": "BHASWANTH VASEMSETTI SAI",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA141",
+      "roll_no": "25012010046",
+      "name": "DHURGA SAI GUGULOTH",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA149",
+      "roll_no": "25012010069",
+      "name": "KALLAKURI MANESH LAKSHMAN SAI",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA153",
+      "roll_no": "25012010039",
+      "name": "BONALA CHETHAN VISHNU VARDHAN REDDY",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA154",
+      "roll_no": "25012010054",
+      "name": "DUDDEKUNTA BHARATH KUMARREDDY",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA155",
+      "roll_no": "25012010045",
+      "name": "DHARAVATH SIDDARDHA",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA156",
+      "roll_no": "25012010027",
+      "name": "ARUGAN",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA157",
+      "roll_no": "25012010084",
+      "name": "MANVI SINGH",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA160",
+      "roll_no": "25012010080",
+      "name": "LOVELESH MAHOUR",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA161",
+      "roll_no": "25012010065",
+      "name": "JYOTI SINGH",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA164",
+      "roll_no": "25012010044",
+      "name": "DEWANG",
+      "group": "25aiml(26c1)"
+    },
+    {
+      "admission_no": "25ASETCSA165",
+      "roll_no": "25012010077",
+      "name": "Kunal Singh",
+      "group": "25aiml(26c2)"
+    },
+    {
+      "admission_no": "25ASETCSA167",
+      "roll_no": "25012010040",
+      "name": "CHAKALI RAGHU",
+      "group": "25aiml(26c1)"
+    }
+  ],
+  "teachers": [
+    {
+      "employee_code": "T001",
+      "name": "Dr. Viney Sharma"
+    },
+    {
+      "employee_code": "T002",
+      "name": "Dr. Toshika Dutta"
+    },
+    {
+      "employee_code": "T003",
+      "name": "Prof. Dr. Rachna Khurana"
+    },
+    {
+      "employee_code": "T004",
+      "name": "Prof. Vivek Agarwal"
+    },
+    {
+      "employee_code": "T005",
+      "name": "Prof. Parag Gajbhiye"
+    },
+    {
+      "employee_code": "T006",
+      "name": "Dr. Aditi Gupta"
+    },
+    {
+      "employee_code": "T007",
+      "name": "Dr. Soumya Ranjan Jena"
+    },
+    {
+      "employee_code": "T008",
+      "name": "Prof. Vinay Agrawal"
+    },
+    {
+      "employee_code": "T009",
+      "name": "Prof. Harjeet Singh"
+    },
+    {
+      "employee_code": "T010",
+      "name": "Prof. Vipin"
+    }
+  ],
+  "subjects": [
+    {
+      "code": "BECS301A",
+      "name": "Data Structures & Algorithms",
+      "credits": 3,
+      "teacher_code": "T001"
+    },
+    {
+      "code": "BECS302",
+      "name": "Computer Organization & Architecture",
+      "credits": 3,
+      "teacher_code": "T002"
+    },
+    {
+      "code": "BEMT301",
+      "name": "Engineering Maths III",
+      "credits": 3,
+      "teacher_code": "T003"
+    },
+    {
+      "code": "BECS306",
+      "name": "Discrete Structure",
+      "credits": 3,
+      "teacher_code": "T004"
+    },
+    {
+      "code": "BEAI301",
+      "name": "Introduction to IOT",
+      "credits": 3,
+      "teacher_code": "T005"
+    },
+    {
+      "code": "BEAI302",
+      "name": "Introduction to AI&ML",
+      "credits": 3,
+      "teacher_code": "T006"
+    },
+    {
+      "code": "BEAI301P",
+      "name": "Introduction to IOT Lab",
+      "credits": 1,
+      "teacher_code": "T006"
+    },
+    {
+      "code": "BECS305P",
+      "name": "Project Based Learning I",
+      "credits": 1,
+      "teacher_code": "T007"
+    },
+    {
+      "code": "SUACC301P",
+      "name": "Community Connect",
+      "credits": 1,
+      "teacher_code": "T006"
+    },
+    {
+      "code": "BSKL301A",
+      "name": "Logical Skills Building and Soft Skills",
+      "credits": 2,
+      "teacher_code": "T009"
+    },
+    {
+      "code": "VACBECS311",
+      "name": "Prompt Engineering for AI Tools",
+      "credits": 0,
+      "teacher_code": "T005"
+    }
+  ]
+}
