@@ -209,8 +209,14 @@ def init():
             if tid:
                 c.execute("update lectures set teacher_id=? where subject_id=(select id from subjects where code=?) and teacher_id is null",(tid,s["code"]))
 
+        # The browser login-device camera is the default camera. It is a
+        # virtual camera entry backed by navigator.mediaDevices.getUserMedia().
+        # Never recreate the old Room 222 camera.
+        c.execute("delete from cameras where lower(camera_name) like '%room 222%' or lower(location)=? or lower(camera_name)=?",(str(seed.get("room","222")).lower(),"login device camera"))
         if c.execute("select count(*) from cameras").fetchone()[0]==0:
-            c.execute("insert into cameras(camera_name,location,stream_url) values(?,?,?)",("Room 222 Classroom Camera",seed["room"],""))
+            c.execute("insert into cameras(camera_name,location,stream_url,authorized) values(?,?,?,1)",("Login Device Camera","This device","LOCAL_DEVICE"))
+        elif not c.execute("select 1 from cameras where lower(camera_name)=? limit 1",("login device camera",)).fetchone():
+            c.execute("insert into cameras(camera_name,location,stream_url,authorized) values(?,?,?,1)",("Login Device Camera","This device","LOCAL_DEVICE"))
     else:
         if c.execute("select count(*) from users").fetchone()[0]==0:
             c.execute("insert into teachers(employee_code,name) values('T001','Demo Teacher')")
@@ -703,11 +709,89 @@ def students():
 @need("ADMIN")
 def cameras():
     c=db()
+    # Keep the old Room 222 camera removed even on existing databases.
+    c.execute("delete from cameras where lower(camera_name) like '%room 222%' or lower(location)=?",("222",))
+    if not c.execute("select 1 from cameras where lower(camera_name)=? limit 1",("login device camera",)).fetchone():
+        c.execute("insert into cameras(camera_name,location,stream_url,authorized) values(?,?,?,1)",("Login Device Camera","This device","LOCAL_DEVICE"))
     if request.method=="POST":
-        c.execute("insert into cameras(camera_name,location,stream_url,authorized) values(?,?,?,1)",(request.form["name"],request.form["location"],request.form.get("url",""))); c.commit(); flash("Camera added.","success")
-    rows=c.execute("select * from cameras order by id desc").fetchall(); c.close()
-    cards="".join(f'<div class="card stat"><span>AUTHORIZED CAMERA</span><b>{x["camera_name"]}</b><small>{x["location"]} · {x["stream_url"] or "No browser stream configured"}</small></div>' for x in rows)
-    return page("Camera Management",f'<div class="card"><div class="head"><h3>Add university camera</h3></div><form class="form" method="post"><label>Name<input name="name" required></label><label>Location<input name="location" required></label><label>Stream URL<input name="url" placeholder="WebRTC/HLS URL"></label><div><button class="btn primary">Authorize Camera</button></div></form></div><div class="grid">{cards}</div>')
+        name=request.form["name"].strip()
+        location=request.form["location"].strip()
+        stream_url=request.form.get("url","").strip()
+        c.execute("insert into cameras(camera_name,location,stream_url,authorized) values(?,?,?,1)",(name,location,stream_url)); c.commit(); flash("Camera added.","success")
+    rows=c.execute("select * from cameras where lower(camera_name) not like '%room 222%' order by case when lower(camera_name)=? then 0 else 1 end,id desc",("login device camera",)).fetchall()
+    c.commit(); c.close()
+    cards=[]
+    for x in rows:
+        is_local=(x["stream_url"] or "")=="LOCAL_DEVICE"
+        source="Browser device camera" if is_local else (x["stream_url"] or "No browser-compatible stream configured")
+        badge="DEFAULT · LOGIN DEVICE" if is_local else "AUTHORIZED CAMERA"
+        cards.append(f'''<a class="card camera-card" href="/cameras/{x["id"]}">
+          <div class="camera-card-top"><span class="pill">{badge}</span><span class="camera-open">VIEW →</span></div>
+          <b class="camera-card-title">{escape(x["camera_name"])}</b>
+          <small>{escape(x["location"])} · {escape(source)}</small>
+          <div class="camera-thumb"><span>{'◉' if is_local else '▣'}</span><em>{'Click to open this device camera' if is_local else 'Click to open camera view'}</em></div>
+        </a>''')
+    body=f'''<style>
+      .camera-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px;padding:18px}}
+      .camera-card{{display:block;padding:18px;transition:.2s ease;border:1px solid #22344f}}
+      .camera-card:hover{{transform:translateY(-4px);border-color:#667dff;box-shadow:0 22px 48px #0007}}
+      .camera-card-top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}}
+      .camera-open{{font-size:11px;font-weight:900;color:#8fa7ff}}
+      .camera-card-title{{display:block;font-size:18px;margin-bottom:6px}}
+      .camera-card small{{display:block;color:#8291aa;min-height:32px;line-height:1.45}}
+      .camera-thumb{{height:135px;margin-top:16px;border-radius:14px;border:1px dashed #304565;background:radial-gradient(circle at 50% 40%,#1b3150,#091321 68%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#7e91ad}}
+      .camera-thumb span{{font-size:30px;color:#7387ff}}.camera-thumb em{{font-style:normal;font-size:10px;margin-top:7px}}
+      @media(max-width:700px){{.camera-grid{{grid-template-columns:1fr}}}}
+    </style>
+    <div class="card"><div class="head"><div><span class="pill">CAMERA MANAGEMENT</span><h2 style="margin:8px 0 5px">University Cameras</h2><p class="muted">The default camera is this login device. Click any camera to open its live view.</p></div></div>
+      <form class="form" method="post"><label>Name<input name="name" required></label><label>Location<input name="location" required></label><label>Stream URL<input name="url" placeholder="Browser-compatible HLS/WebRTC URL"></label><div><button class="btn primary">Authorize Camera</button></div></form>
+    </div>
+    <div class="card"><div class="head"><h3>Available Cameras</h3><span class="pill">{len(rows)} cameras</span></div><div class="camera-grid">{''.join(cards) or '<div style="padding:20px" class="muted">No cameras available.</div>'}</div></div>'''
+    return page("Camera Management",body)
+
+@app.route("/cameras/<int:camera_id>")
+@need("ADMIN")
+def camera_view(camera_id):
+    c=db()
+    camera=c.execute("select * from cameras where id=?",(camera_id,)).fetchone()
+    c.close()
+    if not camera:
+        flash("Camera not found.","danger")
+        return redirect(url_for("cameras"))
+    if "room 222" in (camera["camera_name"] or "").lower() or (camera["location"] or "").strip()=="222":
+        flash("The Room 222 camera has been removed.","warning")
+        return redirect(url_for("cameras"))
+    is_local=(camera["stream_url"] or "")=="LOCAL_DEVICE"
+    stream_url=camera["stream_url"] or ""
+    if is_local:
+        viewer='''<video id="cameraVideo" class="camera-view" autoplay playsinline muted></video>
+        <div class="camera-actions"><button class="btn primary" id="startCamera">◉ Start Camera</button><button class="btn" id="stopCamera" disabled>■ Stop</button></div>
+        <div id="cameraStatus" class="camera-status">Click Start Camera to use this login device camera.</div>
+        <script>
+        (()=>{{
+          const video=document.getElementById("cameraVideo"),start=document.getElementById("startCamera"),stop=document.getElementById("stopCamera"),status=document.getElementById("cameraStatus");let stream=null;
+          start.onclick=async()=>{{try{{
+            if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) throw new Error("Camera API unavailable");
+            stream=await navigator.mediaDevices.getUserMedia({{video:{{facingMode:"user",width:{{ideal:1280}},height:{{ideal:720}}}},audio:false}});
+            video.srcObject=stream;start.disabled=true;stop.disabled=false;status.textContent="Live camera active on this device.";
+          }}catch(e){{status.textContent="Camera access failed. Allow camera permission and use HTTPS.";}}}};
+          stop.onclick=()=>{{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;start.disabled=false;stop.disabled=true;status.textContent="Camera stopped.";}}
+          window.addEventListener("beforeunload",()=>{{if(stream)stream.getTracks().forEach(t=>t.stop());}});
+        }})();
+        </script>'''
+    else:
+        viewer=f'''<video class="camera-view" controls autoplay playsinline muted src="{escape(stream_url)}"></video>
+        <div class="camera-status">Stream URL: {escape(stream_url)}. The URL must be browser-compatible; RTSP URLs cannot be played directly by a normal browser.</div>'''
+    body=f'''<style>
+      .camera-view-wrap{{max-width:1200px;margin:auto}}
+      .camera-view{{width:100%;min-height:520px;max-height:75vh;object-fit:contain;border-radius:18px;background:#02070d;border:1px solid #2a3d59;display:block}}
+      .camera-actions{{display:flex;gap:10px;margin-top:14px}}
+      .camera-status{{margin-top:12px;color:#8fa0b8;font-size:12px;padding:12px 14px;border:1px solid #243752;border-radius:11px;background:#0a1627}}
+    </style>
+    <div class="hero"><div><span class="pill">{'DEFAULT CAMERA' if is_local else 'AUTHORIZED CAMERA'}</span><h2>{escape(camera["camera_name"])}</h2><p class="muted">{escape(camera["location"])} · Live view</p></div><a class="btn" href="/cameras">← All Cameras</a></div>
+    <div class="card camera-view-wrap"><div style="padding:18px">{viewer}</div></div>'''
+    return page("Camera View",body)
+
 
 
 # --- Fail-safe PDF document ingestion ---------------------------------------
