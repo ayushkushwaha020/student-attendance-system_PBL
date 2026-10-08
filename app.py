@@ -282,7 +282,8 @@ def attendance():
     if u["role"]=="TEACHER": lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? and s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
     else: lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no").fetchall()
     students=c.execute("select * from students where 1=1 order by name").fetchall()
-    selected_lecture=lectures[0] if lectures else None
+    requested_lecture=int(request.args.get("lecture_id","0") or 0)
+    selected_lecture=next((l for l in lectures if l["id"]==requested_lecture), lectures[0] if lectures else None)
     if selected_lecture:
         students=c.execute("""select * from students where course=? and section=?
             and (group_name is null or group_name='' or group_name=?) order by name""",
@@ -293,7 +294,7 @@ def attendance():
     c.close()
     opts="".join(f'<option value="{l["id"]}">{l["lecture_date"]} · Slot {l["lecture_no"]} · {l["subject_name"]} · {l["start_time"] or ""}-{l["end_time"] or ""} · Room {l["room"]}</option>' for l in lectures)
     checks="".join(f'<label style="display:block;padding:7px"><input type="checkbox" name="student_id" value="{st["id"]}" {"checked" if st["id"] in present_ids else ""}> {st["name"]} <span class="muted">({st["enrollment_no"]})</span></label>' for st in students)
-    return page("Attendance Register",f'<div class="card"><div class="head"><h3>Select lecture</h3><span class="pill">{len(students)} students</span></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Attendance</button></div></form></div>')
+    return page("Attendance Register",f'<div class="card"><div class="head"><h3>Select lecture</h3><span class="pill">{len(students)} students</span></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" onchange="if(this.value) location.href='/attendance?lecture_id='+this.value" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Attendance</button></div></form></div>')
 
 @app.route("/student/attendance")
 @need("STUDENT")
