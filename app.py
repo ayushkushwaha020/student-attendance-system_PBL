@@ -35,13 +35,13 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}.side{
 .overall-breakdown{display:flex;gap:18px;margin-top:14px}
 .overall-breakdown span{font-size:10px;color:#8291aa}
 .overall-breakdown b{display:block;font-size:16px;color:#fff;margin-top:2px}
-.top-profile{display:flex;align-items:center;gap:10px}.top-profile-name{white-space:nowrap}.top-profile-avatar{width:40px;height:40px;border-radius:50%;object-fit:cover;border:1px solid #304565;display:block}.profile-avatar{width:38px;height:38px;border-radius:12px;object-fit:cover;display:block}.profile-link{display:inline-flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #273b59;border-radius:11px;background:#0b1728;color:#dce6f8;font-weight:800;transition:.2s}
+.top-profile{display:flex;align-items:center;gap:10px}.initial-avatar{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#6978ff,#43d7ff);color:#fff;border:1px solid #7180ff;font-weight:950;letter-spacing:.02em}.top-profile-name{white-space:nowrap}.top-profile-avatar{width:40px;height:40px;border-radius:50%;object-fit:cover;border:1px solid #304565;display:block}.profile-avatar{width:38px;height:38px;border-radius:12px;object-fit:cover;display:block}.profile-link{display:inline-flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #273b59;border-radius:11px;background:#0b1728;color:#dce6f8;font-weight:800;transition:.2s}
 .profile-link:hover{background:#14243b;border-color:#46618a;transform:translateY(-1px)}
 .settings-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#17294a;font-size:16px}
 .profile-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.profile-card{padding:0}.face-panel{padding:22px}
 .face-camera{width:100%;aspect-ratio:4/3;max-height:420px;object-fit:cover;border-radius:15px;background:#02070d;border:1px solid #2a3d59;display:block}
 .profile-preview{width:110px;height:110px;border-radius:18px;object-fit:cover;display:block;margin:12px 0;border:1px solid #2a3d59}.profile-placeholder{width:110px;height:110px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,#6978ff,#43d7ff);font-size:28px;font-weight:900;margin:12px 0}.face-preview{display:none}.face-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
-.face-note{font-size:11px;color:#8291aa;line-height:1.6;margin-top:12px}.face-status{margin-top:12px;min-height:20px;color:#8fa0b8;font-size:12px}
+.timetable-hero{align-items:center}.tt-badge{min-width:145px;text-align:center;padding:14px 18px;border:1px solid #304565;border-radius:14px;background:#0b1728;font-weight:900;font-size:16px}.tt-badge small{font-size:10px;color:#8291aa}.tt-wrap{overflow:auto;padding:4px}.tt-grid{display:grid;grid-template-columns:92px repeat(5,minmax(150px,1fr));grid-template-rows:64px repeat(9,94px);gap:8px;min-width:850px}.tt-day{border:1px solid #263a58;border-radius:13px;background:#111f33;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900}.tt-day small{font-size:10px;color:#8291aa;margin-top:3px}.tt-time{border:1px solid #1f314b;border-radius:12px;background:#0b1728;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#9eacc1}.tt-time b{font-size:12px;color:#dfe8f7}.tt-time small{font-size:10px;margin-top:4px}.tt-cell{border-radius:13px;padding:11px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;transition:.2s}.tt-cell.subject{background:linear-gradient(145deg,#152a49,#102039);border:1px solid #34527b}.tt-cell.subject:hover{transform:translateY(-2px);border-color:#667dff;box-shadow:0 12px 28px #0005}.tt-code{font-size:9px;color:#91a9ff;font-weight:900;letter-spacing:.04em}.tt-cell b{font-size:12px;line-height:1.25;margin:4px 0}.tt-cell small{font-size:9px;color:#91a0b6}.tt-cell em{font-style:normal;font-size:8px;color:#71829b;margin-top:4px}.tt-cell.free{background:#0a1422;border:1px dashed #23354f;align-items:center;color:#51627a;font-size:10px}.tt-legend{display:flex;gap:22px;flex-wrap:wrap;margin-top:14px;color:#8291aa;font-size:11px}.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}.classdot{background:#6678ff}.freedot{background:#46566c}.face-note{font-size:11px;color:#8291aa;line-height:1.6;margin-top:12px}.face-status{margin-top:12px;min-height:20px;color:#8fa0b8;font-size:12px}
 @media(max-width:900px){.profile-grid{grid-template-columns:1fr}}
 @media(max-width:900px){.overall-box{min-width:0}}
 @media(max-width:900px){.side{width:70px}.brand div:not(.logo),.nav a span{display:none}.main{margin-left:70px;width:calc(100% - 70px)}.grid{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:1fr}.hero{flex-direction:column}}
@@ -177,19 +177,21 @@ def need(*roles):
 def page(title,body,**ctx):
     u=me()
     profile_picture=""
+    initials=""
     if u and u["role"]=="STUDENT":
         cc=db(); pp=cc.execute("select profile_picture from students where id=?",(u["student_id"],)).fetchone(); cc.close()
         profile_picture=pp["profile_picture"] if pp and pp["profile_picture"] else ""
+        initials="".join(part[0] for part in (u["display_name"] or "").split() if part)[:2].upper() or "A"
     nav=""
     if u:
         nav=f'<aside class="side"><div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
         if u["role"] in ("ADMIN","TEACHER"): nav+='<a href="/attendance">✓ Attendance</a><a href="/lectures">◷ Lectures</a>'
         if u["role"]=="ADMIN": nav+='<a href="/import">⇧ PDF Import</a><a href="/students">♙ Students</a><a href="/lectures">◷ Lectures</a><a href="/cameras">◉ Cameras</a><a href="/recognition">◎ Recognition</a><a href="/reports">▥ Reports</a><a href="/audit">⌁ Audit Logs</a>'
-        if u["role"]=="STUDENT": nav+='<a href="/student/attendance">▤ My Attendance</a>'
+        if u["role"]=="STUDENT": nav+='<a href="/student/attendance">▤ My Attendance</a><a href="/student/timetable">▦ Time Table</a>'
         nav+='<a href="/logout">↪ Logout</a></nav></aside>'
     flashes="".join(f'<div class="flash">{m}</div>' for m in [x[1] for x in []])
     html=f"""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>{CSS}</style></head><body>
-    <div class="shell">{nav}<main class="main"><header class="top"><div><span class="pill">AI ATTENDANCE</span><h1>{title}</h1></div><div class="top-profile">{(f'<a class="profile-link" href="/student/profile" title="Edit profile"><span class="settings-icon">⚙</span></a><span class="top-profile-name">{u["display_name"]}</span>{f'<img class="top-profile-avatar" src="{profile_picture}" alt="Profile">' if profile_picture else '<div class="top-profile-avatar" style="display:grid;place-items:center;background:#17294a;font-weight:900">A</div>'}' if u and u["role"]=="STUDENT" else f'<span class="muted">{u["display_name"] if u else "Secure Login"}</span>')}</div></header><section class="content">{flashes}{body}</section></main></div></body></html>"""
+    <div class="shell">{nav}<main class="main"><header class="top"><div><span class="pill">AI ATTENDANCE</span><h1>{title}</h1></div><div class="top-profile">{(f'<a class="profile-link" href="/student/profile" title="Edit profile"><span class="settings-icon">⚙</span></a><span class="top-profile-name">{u["display_name"]}</span>{f'<img class="top-profile-avatar" src="{profile_picture}" alt="Profile">' if profile_picture else f'<div class="initial-avatar">{initials}</div>'}' if u and u["role"]=="STUDENT" else f'<span class="muted">{u["display_name"] if u else "Secure Login"}</span>')}</div></header><section class="content">{flashes}{body}</section></main></div></body></html>"""
     return html
 
 @app.route("/")
@@ -392,6 +394,38 @@ def attendance():
     opts="".join(f'<option value="{l["id"]}">{l["lecture_date"]} · Slot {l["lecture_no"]} · {l["subject_name"]} · {l["start_time"] or ""}-{l["end_time"] or ""} · Room {l["room"]}</option>' for l in lectures)
     checks="".join(f'<label style="display:block;padding:7px"><input type="checkbox" name="student_id" value="{st["id"]}" {"checked" if st["id"] in present_ids else ""}> {st["name"]} <span class="muted">({st["enrollment_no"]})</span></label>' for st in students)
     return page("Attendance Register",f"""<div class="card"><div class="head"><h3>Select lecture</h3><span class="pill">{len(students)} students</span></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" onchange="if(this.value) location.href='/attendance?lecture_id='+this.value" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Attendance</button></div></form></div>""")
+
+@app.route("/student/timetable")
+@need("STUDENT")
+def student_timetable():
+    u=me(); c=db()
+    student=c.execute("select * from students where id=?",(u["student_id"],)).fetchone()
+    c.close()
+    tt=_load_timetable()
+    slots=tt["slots"]
+    day_names=["Monday","Tuesday","Wednesday","Thursday","Friday"]
+    group=student["group_name"] or ""
+    cells=[]
+    for day in day_names:
+        day_entries=[e for e in tt["entries"] if e.get("day")==day and (not e.get("group") or e.get("group")==group)]
+        by_slot={}
+        for e in day_entries:
+            for no in e["slots"]:
+                by_slot[no]=e
+        for sl in slots:
+            e=by_slot.get(sl["no"])
+            if e:
+                code=e["subject_code"]; name=e["subject_name"]
+                cells.append(f'<div class="tt-cell subject" style="grid-column:{day_names.index(day)+2};grid-row:{sl["no"]+1}"><span class="tt-code">{code}</span><b>{name}</b><small>{sl["start"]}–{sl["end"]}</small><em>Slot {sl["label"]}</em></div>')
+            else:
+                cells.append(f'<div class="tt-cell free" style="grid-column:{day_names.index(day)+2};grid-row:{sl["no"]+1}"><span>Free</span></div>')
+    rows="".join(cells)
+    head="".join(f'<div class="tt-day" style="grid-column:{i+2};grid-row:1">{d[:3]}<small>{d}</small></div>' for i,d in enumerate(day_names))
+    timecol="".join(f'<div class="tt-time" style="grid-column:1;grid-row:{i+2}"><b>{sl["label"]}</b><small>{sl["start"]}</small></div>' for i,sl in enumerate(slots))
+    body=f'''<div class="hero timetable-hero"><div><span class="pill">WEEKLY SCHEDULE</span><h2>Your Class Time Table</h2><p class="muted">B.Tech · Semester III · Section C · Room {tt["room"]}</p></div><div class="tt-badge">09:30 → 16:55<br><small>9 lecture slots</small></div></div>
+    <div class="tt-wrap"><div class="tt-grid">{head}{timecol}{rows}</div></div>
+    <div class="tt-legend"><span><i class="dot classdot"></i> Scheduled class</span><span><i class="dot freedot"></i> Free period</span><span>Group: <b>{group or "All students"}</b></span></div>'''
+    return page("Time Table",body)
 
 @app.route("/student/profile",methods=["GET","POST"])
 @need("STUDENT")
