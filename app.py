@@ -373,7 +373,7 @@ def attendance():
     c.close()
     opts="".join(f'<option value="{l["id"]}">{l["lecture_date"]} · Slot {l["lecture_no"]} · {l["subject_name"]} · {l["start_time"] or ""}-{l["end_time"] or ""} · Room {l["room"]}</option>' for l in lectures)
     checks="".join(f'<label style="display:block;padding:7px"><input type="checkbox" name="student_id" value="{st["id"]}" {"checked" if st["id"] in present_ids else ""}> {st["name"]} <span class="muted">({st["enrollment_no"]})</span></label>' for st in students)
-    return page("Attendance Register",f'<div class="card"><div class="head"><h3>Select lecture</h3><span class="pill">{len(students)} students</span></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" onchange="if(this.value) location.href='/attendance?lecture_id='+this.value" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Attendance</button></div></form></div>')
+    return page("Attendance Register",f"""<div class="card"><div class="head"><h3>Select lecture</h3><span class="pill">{len(students)} students</span></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" onchange="if(this.value) location.href='/attendance?lecture_id='+this.value" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Attendance</button></div></form></div>""")
 
 @app.route("/student/attendance")
 @need("STUDENT")
