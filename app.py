@@ -214,7 +214,7 @@ def login():
             # Accept any subject code assigned to that teacher as the password.
             u=c.execute("""select u.* from users u join teachers t on t.id=u.teacher_id
                            join subjects s on s.teacher_id=t.id
-                           where u.role='TEACHER' and upper(trim(replace(replace(replace(t.name,'Prof. Dr. ',''),'Dr. ',''),'Prof. ','')))=? and s.code=?""",
+                           where u.role='TEACHER' and upper(trim(replace(replace(replace(t.name,'Prof. Dr. ',''),'Dr. ',''),'Prof. ','')))=? and (s.teacher_id=t.id or exists (select 1 from lectures lx where lx.subject_id=s.id and lx.teacher_id=t.id)) and s.code=?""",
                         (username.upper(),password.upper())).fetchone()
         c.close()
         if u: session["uid"]=u["id"]; return redirect(url_for("dashboard"))
@@ -628,7 +628,8 @@ def lectures():
         if slot<1 or slot>len(times):
             c.close(); flash("Invalid lecture slot.","danger"); return redirect(url_for("lectures"))
         subject=c.execute("select * from subjects where id=?",(sid,)).fetchone()
-        if not subject or (u["role"]=="TEACHER" and subject["teacher_id"]!=u["teacher_id"]):
+        teacher_teaches_subject = subject and (subject["teacher_id"]==u["teacher_id"] or c.execute("select 1 from lectures where subject_id=? and teacher_id=? limit 1",(sid,u["teacher_id"])).fetchone())
+        if not subject or (u["role"]=="TEACHER" and not teacher_teaches_subject):
             c.close(); flash("You can only add lectures for subjects assigned to you.","danger"); return redirect(url_for("lectures"))
         occupied=c.execute("select id from lectures where lecture_date=? and lecture_no=? and course=? and section=? and room=?",(lecture_date,slot,course,section,room)).fetchone()
         if occupied:
@@ -638,7 +639,7 @@ def lectures():
         audit("CREATE_LECTURE","lecture",c.execute("select last_insert_rowid()").fetchone()[0],"manual lecture")
         c.commit(); flash("Lecture created successfully.","success")
     if u["role"]=="TEACHER":
-        subjects=c.execute("select * from subjects where teacher_id=? order by name",(u["teacher_id"],)).fetchall()
+        subjects=c.execute("""select distinct s.* from subjects s left join lectures l on l.subject_id=s.id where s.teacher_id=? or l.teacher_id=? order by s.name""",(u["teacher_id"],u["teacher_id"])).fetchall()
         lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
     else:
         subjects=c.execute("select * from subjects order by name").fetchall()
@@ -651,7 +652,7 @@ def lectures():
     rows="".join(f'<tr><td>{x["lecture_date"]}</td><td>Slot {x["lecture_no"]}</td><td>{x["subject_name"]}</td><td>{x["room"]}</td><td>{x["section"]}</td><td>{x["course"]}</td></tr>' for x in lectures) or '<tr><td colspan="6">No lectures scheduled.</td></tr>'
     schedule_json=json.dumps([dict(x) for x in schedule_rows]); today=datetime.now().date().isoformat()
     teacher_field=f'<label>Teacher<select name="teacher_id">{teacher_opts}</select></label>' if u["role"]=="ADMIN" else ""
-    body=f"""<style>.lecture-form{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}}.lecture-form .wide{{grid-column:1/-1}}.slot-help{{padding:12px 14px;border:1px solid #24354f;border-radius:12px;background:#0b1627;color:#8fa0b8;font-size:12px}}.slot-help b{{color:#fff}}@media(max-width:800px){{.lecture-form{{grid-template-columns:1fr}}.lecture-form .wide{{grid-column:auto}}}}</style>
+    body=f"""<style>.lecture-form{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;padding-top:8px}}.lecture-form .wide{{grid-column:1/-1}}.lecture-form label{{display:flex;flex-direction:column;gap:8px;font-size:12px;font-weight:850;color:#9dafc8;text-transform:uppercase;letter-spacing:.04em}}.lecture-form input,.lecture-form select{{box-sizing:border-box;width:100%;min-height:48px;border:1px solid #304563;border-radius:12px;background:#101f34;color:#f4f7ff;padding:0 14px;font-size:14px;outline:none}}.lecture-form input:focus,.lecture-form select:focus{{border-color:#637dff;box-shadow:0 0 0 3px #526eff22}}.lecture-form select option{{background:#101f34;color:#fff}}.slot-help{{padding:15px 17px;border:1px solid #263c5d;border-radius:13px;background:#0a1628;color:#8fa0b8;font-size:12px}}.slot-help b{{color:#fff}}@media(max-width:800px){{.lecture-form{{grid-template-columns:1fr}}.lecture-form .wide{{grid-column:auto}}}}</style>
 <div class="card"><div class="head"><div><span class="pill">LECTURE MANAGEMENT</span><h2 style="margin:8px 0 6px;font-size:28px">Add a New Lecture</h2><p class="muted">Choose one of your assigned subjects, a weekday, and an available timetable slot.</p></div></div>
 <form class="lecture-form" method="post" id="lecture-form"><label>Subject<select name="subject_id" required>{subject_opts}</select></label><label>Date<input type="date" name="lecture_date" id="lecture-date" min="{today}" required></label><label>Course<input name="course" id="lecture-course" value="B.Tech" required></label><label>Section<input name="section" id="lecture-section" value="C" required></label><label>Room Number<input name="room" id="lecture-room" value="222" required></label><label>Slot<select name="lecture_no" id="lecture-slot" required></select></label>{teacher_field}<div class="wide slot-help" id="slot-help">Choose the date, course, section and room. Only free slots will be available.</div><div class="wide"><button class="btn primary" type="submit">Create Lecture</button></div></form></div>
 <div class="card"><div class="head"><h3>Lecture Schedule</h3><span class="pill">{len(lectures)} lectures</span></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Room</th><th>Section</th><th>Course</th></tr>{rows}</table></div></div>
