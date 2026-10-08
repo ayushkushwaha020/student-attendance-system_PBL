@@ -173,6 +173,10 @@ def need(*roles):
 
 def page(title,body,**ctx):
     u=me()
+    profile_picture=""
+    if u and u["role"]=="STUDENT":
+        cc=db(); pp=cc.execute("select profile_picture from students where id=?",(u["student_id"],)).fetchone(); cc.close()
+        profile_picture=pp["profile_picture"] if pp and pp["profile_picture"] else ""
     nav=""
     if u:
         nav=f'<aside class="side"><div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
@@ -182,7 +186,7 @@ def page(title,body,**ctx):
         nav+='<a href="/logout">↪ Logout</a></nav></aside>'
     flashes="".join(f'<div class="flash">{m}</div>' for m in [x[1] for x in []])
     html=f"""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>{CSS}</style></head><body>
-    <div class="shell">{nav}<main class="main"><header class="top"><div><span class="pill">AI ATTENDANCE</span><h1>{title}</h1></div><div class="top-profile">{(f'<a class="profile-link" href="/student/profile" title="Edit profile"><span class="settings-icon">⚙</span></a><span class="top-profile-name">{u["display_name"]}</span><img class="top-profile-avatar" src="{(lambda cc: (lambda pp: pp["profile_picture"] if pp and pp["profile_picture"] else "")(cc.execute("select profile_picture from students where id=?",(u["student_id"],)).fetchone()))(db())}" alt="Profile">' if u and u["role"]=="STUDENT" else f'<span class="muted">{u["display_name"] if u else "Secure Login"}</span>')}</div></header><section class="content">{flashes}{body}</section></main></div></body></html>"""
+    <div class="shell">{nav}<main class="main"><header class="top"><div><span class="pill">AI ATTENDANCE</span><h1>{title}</h1></div><div class="top-profile">{(f'<a class="profile-link" href="/student/profile" title="Edit profile"><span class="settings-icon">⚙</span></a><span class="top-profile-name">{u["display_name"]}</span>{f'<img class="top-profile-avatar" src="{profile_picture}" alt="Profile">' if profile_picture else '<div class="top-profile-avatar" style="display:grid;place-items:center;background:#17294a;font-weight:900">A</div>'}' if u and u["role"]=="STUDENT" else f'<span class="muted">{u["display_name"] if u else "Secure Login"}</span>')}</div></header><section class="content">{flashes}{body}</section></main></div></body></html>"""
     return html
 
 @app.route("/")
