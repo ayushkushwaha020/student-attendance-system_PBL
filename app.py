@@ -93,6 +93,13 @@ def init():
         for old,new in legacy.items():
             if c.execute("select id from subjects where code=?",(old,)).fetchone() and not c.execute("select id from subjects where code=?",(new,)).fetchone():
                 c.execute("update subjects set code=? where code=?",(new,old))
+        old_ai=c.execute("select id from subjects where code='BEAI302'").fetchone()
+        new_ai=c.execute("select id from subjects where code='BEAI302A'").fetchone()
+        if old_ai and new_ai:
+            c.execute("update lectures set subject_id=? where subject_id=?",(new_ai["id"],old_ai["id"]))
+            c.execute("update attendance set subject_id=? where subject_id=?",(new_ai["id"],old_ai["id"]))
+            c.execute("delete from subjects where id=?",(old_ai["id"],))
+
         for s in seed.get("subjects",[]):
             tid=teacher_ids.get(s.get("teacher_code"))
             row=c.execute("select id from subjects where code=?",(s["code"],)).fetchone()
