@@ -224,6 +224,28 @@ def init():
         c.execute("update users set username='SHARDA.AGRA', display_name='Sharda University Agra Administrator' where id=?",(admin_user["id"],))
     c.commit(); c.close()
 
+def sync_admin_accounts():
+    """Replace all ADMIN accounts with the credentials configured in Render."""
+    raw=os.environ.get("ADMIN_ACCOUNTS_JSON","").strip()
+    if not raw:
+        return
+    try:
+        accounts=json.loads(raw)
+        if not isinstance(accounts,list) or not accounts:
+            return
+    except Exception:
+        return
+    c=db()
+    c.execute("delete from users where role='ADMIN'")
+    for account in accounts:
+        username=str(account.get("username","")).strip()
+        password=str(account.get("password",""))
+        if username and password:
+            c.execute("insert into users(username,password,role,display_name) values(?,?,?,?,?)",
+                      (username,password,"ADMIN",username))
+    c.commit()
+    c.close()
+
 def me():
     if "uid" not in session:return None
     c=db(); u=c.execute("select * from users where id=?",(session["uid"],)).fetchone(); c.close(); return u
@@ -1058,6 +1080,7 @@ def ensure_timetable_and_absences():
 
 init()
 upgrade_schema()
+sync_admin_accounts()
 repair_timetable_records()
 ensure_timetable_and_absences()
 
