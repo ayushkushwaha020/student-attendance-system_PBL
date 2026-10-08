@@ -479,9 +479,9 @@ def attendance():
         if not selected or (u["role"]=="TEACHER" and selected["teacher_id"]!=u["teacher_id"]):
             c.close(); flash("Lecture not found or not assigned to you.","danger"); return redirect(url_for("attendance"))
         if selected["group_name"]:
-            students=c.execute("""select * from students where course=? and section=? and group_name=? order by name""",(selected["course"],selected["section"],selected["group_name"])).fetchall()
+            students=c.execute("""select * from students where course=? and section=? and group_name=? order by cast(roll_no as integer)""",(selected["course"],selected["section"],selected["group_name"])).fetchall()
         else:
-            students=c.execute("""select * from students where course=? and section=? order by name""",(selected["course"],selected["section"])).fetchall()
+            students=c.execute("""select * from students where course=? and section=? order by cast(roll_no as integer)""",(selected["course"],selected["section"])).fetchall()
         ps="TEACHER_OVERRIDE" if u["role"]=="TEACHER" else "ADMIN_OVERRIDE"; aas="TEACHER_ABSENT" if u["role"]=="TEACHER" else "ADMIN_ABSENT"
         for st in students:
             src=ps if request.form.get(f"status_{st['id']}","A")=="P" else aas
@@ -495,9 +495,9 @@ def attendance():
         # For an all-section lecture, show every student in the course/section.
         # Only group-specific lectures are filtered to that group.
         if selected["group_name"]:
-            students=c.execute("""select * from students where course=? and section=? and group_name=? order by name""",(selected["course"],selected["section"],selected["group_name"])).fetchall()
+            students=c.execute("""select * from students where course=? and section=? and group_name=? order by cast(roll_no as integer)""",(selected["course"],selected["section"],selected["group_name"])).fetchall()
         else:
-            students=c.execute("""select * from students where course=? and section=? order by name""",(selected["course"],selected["section"])).fetchall()
+            students=c.execute("""select * from students where course=? and section=? order by cast(roll_no as integer)""",(selected["course"],selected["section"])).fetchall()
         present={x["student_id"] for x in c.execute("select student_id from attendance where lecture_id=? and source in ('TEACHER_OVERRIDE','ADMIN_OVERRIDE','AI_RECOGNITION')",(selected["id"],)).fetchall()}
     else: students=[]; present=set()
     c.close()
