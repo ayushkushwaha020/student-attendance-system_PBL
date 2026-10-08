@@ -337,9 +337,6 @@ def import_pdf():
         else: result="Please upload a PDF file."
     return page("PDF Import",f'<div class="hero"><div><span class="pill">AUTOMATIC DOCUMENT INGESTION</span><h2>Upload university PDF</h2><p class="muted">Timetable and student-list PDFs can be analyzed here.</p></div></div><div class="card"><form class="form" method="post" enctype="multipart/form-data"><label class="wide">PDF file<input type="file" name="pdf" accept=".pdf" required></label><div><button class="btn primary">Analyze PDF</button></div></form></div>{("<div class=card><div class=head><h3>Result</h3></div><div style=padding:20px>"+result+"</div></div>") if result else ""}')
 
-if __name__=="__main__":
-    app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)))
-
 # Production upgrade staging enabled.
 
 # --- Production feature pack ---
@@ -523,3 +520,6 @@ def ensure_timetable_and_absences():
 init()
 upgrade_schema()
 ensure_timetable_and_absences()
+
+if __name__=="__main__":
+    app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)))
