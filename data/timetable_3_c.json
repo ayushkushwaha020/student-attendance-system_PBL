@@ -100,7 +100,7 @@
       "day": "Monday",
       "subject_code": "BECS306",
       "subject_name": "Discrete Structure",
-      "teacher_code": "T004",
+      "teacher_code": null,
       "group": null,
       "slots": [
         4
@@ -152,7 +152,7 @@
       "day": "Wednesday",
       "subject_code": "BECS306",
       "subject_name": "Discrete Structure",
-      "teacher_code": "T004",
+      "teacher_code": null,
       "group": null,
       "slots": [
         1,
@@ -250,7 +250,7 @@
       "day": "Thursday",
       "subject_code": "BEAI301P",
       "subject_name": "Introduction to IOT Lab",
-      "teacher_code": "T006",
+      "teacher_code": "T004",
       "group": "25aiml(26c1)",
       "slots": [
         7,
