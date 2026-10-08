@@ -696,8 +696,14 @@ def lectures():
         if not subject or (u["role"]=="TEACHER" and not teacher_teaches_subject):
             c.close(); flash("You can only add lectures for subjects assigned to you.","danger"); return redirect(url_for("lectures"))
         occupied=c.execute("select id from lectures where lecture_date=? and lecture_no=? and course=? and section=? and room=?",(lecture_date,slot,course,section,room)).fetchone()
-        if occupied:
-            c.close(); flash("This slot is already occupied for the selected date, course, section and room.","danger"); return redirect(url_for("lectures"))
+        timetable_busy=False
+        try:
+            tt=_load_timetable()
+            timetable_busy=(course==tt.get("course","B.Tech") and section==tt.get("section","C") and room==tt.get("room","222") and any(e.get("day")==chosen_date.strftime("%A") and slot in [int(x) for x in e.get("slots",[])] for e in tt.get("entries",[])))
+        except Exception:
+            pass
+        if occupied or timetable_busy:
+            c.close(); flash("This slot is already occupied by the official timetable." if timetable_busy else "This slot is already occupied for the selected date, course, section and room.","danger"); return redirect(url_for("lectures"))
         st,en=times[slot-1]
         c.execute("insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,start_time,end_time,slot_label,status) values(?,?,?,?,?,?,?,?,?,?,?)",(sid,teacher_id,slot,course,section,room,lecture_date,st,en,f"Slot {slot}","MANUAL"))
         audit("CREATE_LECTURE","lecture",c.execute("select last_insert_rowid()").fetchone()[0],"manual lecture")
@@ -721,6 +727,15 @@ def lectures():
         lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id order by l.lecture_date desc,l.lecture_no limit 100").fetchall()
     teachers=c.execute("select * from teachers order by name").fetchall()
     schedule_rows=c.execute("select lecture_date,lecture_no,course,section,room from lectures").fetchall()
+    timetable_busy=[]
+    try:
+        tt=_load_timetable()
+        days=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        for e in tt.get("entries",[]):
+            for n in e.get("slots",[]):
+                timetable_busy.append({"weekday":days.index(e["day"]),"course":tt.get("course","B.Tech"),"section":tt.get("section","C"),"room":tt.get("room","222"),"slot":int(n)})
+    except Exception:
+        pass
     c.close()
     subject_opts="".join(f'<option value="{s["id"]}">{s["name"]}</option>' for s in subjects)
     teacher_opts="".join(f'<option value="{t["id"]}">{t["name"]}</option>' for t in teachers)
@@ -737,7 +752,7 @@ def lectures():
 <form class="lecture-form" method="post" id="lecture-form"><label>Subject<select name="subject_id" required>{subject_opts}</select></label><label class="date-field">Date<div class="date-picker" id="date-picker"><input type="text" id="lecture-date-display" placeholder="Select a weekday" readonly required><input type="hidden" name="lecture_date" id="lecture-date" required><div class="calendar-pop" id="calendar-pop"><div class="cal-head"><button type="button" id="cal-prev">‹</button><b id="cal-title"></b><button type="button" id="cal-next">›</button></div><div class="cal-week"><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span class="weekend">SAT</span><span class="weekend">SUN</span></div><div class="cal-grid" id="cal-grid"></div></div></div></label><label>Course<input name="course" id="lecture-course" value="B.Tech" required></label><label>Section<input name="section" id="lecture-section" value="C" required></label><label>Room Number<input name="room" id="lecture-room" value="222" required></label><label>Slot<select name="lecture_no" id="lecture-slot" required></select></label>{teacher_field}<div class="wide slot-help" id="slot-help">Choose the date, course, section and room. Only free slots will be available.</div><div class="wide"><button class="btn primary" type="submit">Create Lecture</button></div></form></div>
 <div class="card"><div class="head"><h3>Lecture Schedule</h3><span class="pill">{len(lectures)} lectures</span></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Room</th><th>Section</th><th>Course</th></tr>{rows}</table></div></div>
 <script>
-const lectureSchedule={schedule_json}, slots={json.dumps(times)}, d=document.getElementById("lecture-date"), dd=document.getElementById("lecture-date-display"), c=document.getElementById("lecture-course"), s=document.getElementById("lecture-section"), r=document.getElementById("lecture-room"), sl=document.getElementById("lecture-slot"), h=document.getElementById("slot-help");
+const lectureSchedule={schedule_json}, timetableBusy={json.dumps(timetable_busy)}, slots={json.dumps(times)}, d=document.getElementById("lecture-date"), dd=document.getElementById("lecture-date-display"), c=document.getElementById("lecture-course"), s=document.getElementById("lecture-section"), r=document.getElementById("lecture-room"), sl=document.getElementById("lecture-slot"), h=document.getElementById("slot-help");
 const minDate=new Date("{today}T00:00:00"), maxDate=new Date("{next_month_limit}T00:00:00"); let calMonth=new Date(minDate.getFullYear(),minDate.getMonth(),1);
 function iso(x){{return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0")}}
 function weekend(x){{return x.getDay()===0||x.getDay()===6}}
@@ -746,7 +761,7 @@ dd.onclick=()=>document.getElementById("calendar-pop").classList.toggle("open");
 document.getElementById("cal-prev").onclick=()=>{{const currentMonth=new Date(minDate.getFullYear(),minDate.getMonth(),1);if(calMonth>currentMonth){{calMonth=new Date(calMonth.getFullYear(),calMonth.getMonth()-1,1);renderCalendar()}}}};
 document.getElementById("cal-next").onclick=()=>{{const maximumMonth=new Date(maxDate.getFullYear(),maxDate.getMonth(),1);if(calMonth<maximumMonth){{calMonth=new Date(calMonth.getFullYear(),calMonth.getMonth()+1,1);renderCalendar()}}}};
 document.addEventListener("click",e=>{{if(!document.getElementById("date-picker").contains(e.target))document.getElementById("calendar-pop").classList.remove("open")}});
-function refreshSlots(){{const date=d.value,course=c.value.trim(),section=s.value.trim(),room=r.value.trim();sl.innerHTML="";if(!date||date<iso(minDate)||date>iso(maxDate)||weekend(new Date(date+"T00:00:00")) ){{sl.disabled=true;h.innerHTML="<b>Only Monday–Friday dates from today through this month and the first 10 days of next month are available.</b>";return}}sl.disabled=false;let free=0;slots.forEach((t,i)=>{{const n=i+1,busy=lectureSchedule.some(x=>x.lecture_date===date&&Number(x.lecture_no)===n&&x.course===course&&x.section===section&&x.room===room);if(busy)return;const o=document.createElement("option");o.value=n;o.textContent="Slot "+n+" ("+t[0]+"–"+t[1]+")";free++;sl.appendChild(o)}});sl.disabled=!free;h.innerHTML=free?"<b>"+free+" slots available.</b> Occupied slots are unavailable.":"<b>No free slots.</b> Change room, section, course or date."}}
+function refreshSlots(){{const date=d.value,course=c.value.trim(),section=s.value.trim(),room=r.value.trim();sl.innerHTML="";if(!date||date<iso(minDate)||date>iso(maxDate)||weekend(new Date(date+"T00:00:00")) ){{sl.disabled=true;h.innerHTML="<b>Only Monday–Friday dates from today through this month and the first 10 days of next month are available.</b>";return}}sl.disabled=false;let free=0;slots.forEach((t,i)=>{{const n=i+1,weekday=(new Date(date+"T00:00:00").getDay()+6)%7,manualBusy=lectureSchedule.some(x=>x.lecture_date===date&&Number(x.lecture_no)===n&&x.course===course&&x.section===section&&x.room===room),officialBusy=timetableBusy.some(x=>x.weekday===weekday&&x.slot===n&&x.course===course&&x.section===section&&x.room===room);if(manualBusy||officialBusy)return;const o=document.createElement("option");o.value=n;o.textContent="Slot "+n+" ("+t[0]+"–"+t[1]+")";free++;sl.appendChild(o)}});sl.disabled=!free;h.innerHTML=free?"<b>"+free+" slots available.</b> Occupied slots are unavailable.":"<b>No free slots.</b> Change room, section, course or date."}}
 [c,s,r].forEach(x=>x.addEventListener("input",refreshSlots));
 document.getElementById("lecture-form").addEventListener("submit",e=>{{if(!d.value||d.value<iso(minDate)||d.value>iso(maxDate)||weekend(new Date(d.value+"T00:00:00"))){{e.preventDefault();alert("Please select a weekday from today through this month or the first 10 days of next month.")}}}});
 renderCalendar();refreshSlots();
