@@ -35,7 +35,7 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}.side{
 .overall-breakdown{display:flex;gap:18px;margin-top:14px}
 .overall-breakdown span{font-size:10px;color:#8291aa}
 .overall-breakdown b{display:block;font-size:16px;color:#fff;margin-top:2px}
-.profile-avatar{width:38px;height:38px;border-radius:12px;object-fit:cover;display:block}.profile-link{display:inline-flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #273b59;border-radius:11px;background:#0b1728;color:#dce6f8;font-weight:800;transition:.2s}
+.top-profile{display:flex;align-items:center;gap:10px}.top-profile-name{white-space:nowrap}.top-profile-avatar{width:40px;height:40px;border-radius:50%;object-fit:cover;border:1px solid #304565;display:block}.profile-avatar{width:38px;height:38px;border-radius:12px;object-fit:cover;display:block}.profile-link{display:inline-flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #273b59;border-radius:11px;background:#0b1728;color:#dce6f8;font-weight:800;transition:.2s}
 .profile-link:hover{background:#14243b;border-color:#46618a;transform:translateY(-1px)}
 .settings-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#17294a;font-size:16px}
 .profile-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.profile-card{padding:0}.face-panel{padding:22px}
@@ -175,19 +175,14 @@ def page(title,body,**ctx):
     u=me()
     nav=""
     if u:
-        avatar_html='<div class="logo">AI</div>'
-        if u and u["role"]=="STUDENT":
-            cc=db(); pp=cc.execute("select profile_picture from students where id=?",(u["student_id"],)).fetchone(); cc.close()
-            if pp and pp["profile_picture"]:
-                avatar_html=f'<img class="profile-avatar" src="{pp["profile_picture"]}" alt="Profile">'
-        nav=f'<aside class="side"><div class="brand"><div class="logo-wrap">{avatar_html}</div><div><b>AttendAI</b><small>University System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
+        nav=f'<aside class="side"><div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University System</small></div></div><nav class="nav"><a href="/dashboard">⌂ Dashboard</a>'
         if u["role"] in ("ADMIN","TEACHER"): nav+='<a href="/attendance">✓ Attendance</a><a href="/lectures">◷ Lectures</a>'
         if u["role"]=="ADMIN": nav+='<a href="/import">⇧ PDF Import</a><a href="/students">♙ Students</a><a href="/lectures">◷ Lectures</a><a href="/cameras">◉ Cameras</a><a href="/recognition">◎ Recognition</a><a href="/reports">▥ Reports</a><a href="/audit">⌁ Audit Logs</a>'
         if u["role"]=="STUDENT": nav+='<a href="/student/attendance">▤ My Attendance</a>'
         nav+='<a href="/logout">↪ Logout</a></nav></aside>'
     flashes="".join(f'<div class="flash">{m}</div>' for m in [x[1] for x in []])
     html=f"""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>{CSS}</style></head><body>
-    <div class="shell">{nav}<main class="main"><header class="top"><div><span class="pill">AI ATTENDANCE</span><h1>{title}</h1></div><div>{(f'<a class="profile-link" href="/student/profile" title="Edit profile"><span>{u["display_name"]}</span><span class="settings-icon">⚙</span></a>' if u and u["role"]=="STUDENT" else f'<span class="muted">{u["display_name"] if u else "Secure Login"}</span>')}</div></header><section class="content">{flashes}{body}</section></main></div></body></html>"""
+    <div class="shell">{nav}<main class="main"><header class="top"><div><span class="pill">AI ATTENDANCE</span><h1>{title}</h1></div><div class="top-profile">{(f'<a class="profile-link" href="/student/profile" title="Edit profile"><span class="settings-icon">⚙</span></a><span class="top-profile-name">{u["display_name"]}</span><img class="top-profile-avatar" src="{(lambda cc: (lambda pp: pp["profile_picture"] if pp and pp["profile_picture"] else "")(cc.execute("select profile_picture from students where id=?",(u["student_id"],)).fetchone()))(db())}" alt="Profile">' if u and u["role"]=="STUDENT" else f'<span class="muted">{u["display_name"] if u else "Secure Login"}</span>')}</div></header><section class="content">{flashes}{body}</section></main></div></body></html>"""
     return html
 
 @app.route("/")
