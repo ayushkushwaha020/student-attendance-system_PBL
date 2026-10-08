@@ -613,26 +613,54 @@ def audit(action,entity="",entity_id=None,detail=""):
 
 @app.route("/lectures",methods=["GET","POST"])
 @need("ADMIN","TEACHER")
-def lecture_manager():
+def lectures():
     u=me(); c=db()
+    times=[("09:30","10:15"),("10:20","11:05"),("11:10","11:55"),("12:00","12:45"),("12:50","13:35"),("13:40","14:25"),("14:30","15:15"),("15:20","16:05"),("16:10","16:55")]
     if request.method=="POST":
-        sid=int(request.form["subject_id"]); slot=int(request.form["lecture_no"])
+        sid=int(request.form["subject_id"]); slot=int(request.form["lecture_no"]); lecture_date=request.form["lecture_date"].strip()
+        course=request.form.get("course","B.Tech").strip(); section=request.form.get("section","C").strip(); room=request.form.get("room","222").strip()
         teacher_id=u["teacher_id"] if u["role"]=="TEACHER" else (int(request.form.get("teacher_id")) if request.form.get("teacher_id") else None)
-        times=[("09:30","10:15"),("10:20","11:05"),("11:10","11:55"),("12:00","12:45"),("12:50","13:35"),("13:40","14:25"),("14:30","15:15"),("15:20","16:05"),("16:10","16:55")]
+        try: chosen_date=datetime.strptime(lecture_date,"%Y-%m-%d").date()
+        except ValueError:
+            c.close(); flash("Please select a valid date.","danger"); return redirect(url_for("lectures"))
+        if chosen_date.weekday()>=5:
+            c.close(); flash("Lectures cannot be added on Saturday or Sunday.","danger"); return redirect(url_for("lectures"))
+        if slot<1 or slot>len(times):
+            c.close(); flash("Invalid lecture slot.","danger"); return redirect(url_for("lectures"))
+        subject=c.execute("select * from subjects where id=?",(sid,)).fetchone()
+        if not subject or (u["role"]=="TEACHER" and subject["teacher_id"]!=u["teacher_id"]):
+            c.close(); flash("You can only add lectures for subjects assigned to you.","danger"); return redirect(url_for("lectures"))
+        occupied=c.execute("select id from lectures where lecture_date=? and lecture_no=? and course=? and section=? and room=?",(lecture_date,slot,course,section,room)).fetchone()
+        if occupied:
+            c.close(); flash("This slot is already occupied for the selected date, course, section and room.","danger"); return redirect(url_for("lectures"))
         st,en=times[slot-1]
-        c.execute("insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,start_time,end_time,slot_label,status) values(?,?,?,?,?,?,?,?,?,?,?)",(sid,teacher_id,slot,request.form.get("course","B.Tech"),request.form.get("section","C"),request.form.get("room","222"),request.form["lecture_date"],st,en,f"Slot {slot}","MANUAL"))
+        c.execute("insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,start_time,end_time,slot_label,status) values(?,?,?,?,?,?,?,?,?,?,?)",(sid,teacher_id,slot,course,section,room,lecture_date,st,en,f"Slot {slot}","MANUAL"))
         audit("CREATE_LECTURE","lecture",c.execute("select last_insert_rowid()").fetchone()[0],"manual lecture")
-        c.commit(); flash("Lecture created.","success")
-    subjects=c.execute("select * from subjects order by code").fetchall()
+        c.commit(); flash("Lecture created successfully.","success")
+    if u["role"]=="TEACHER":
+        subjects=c.execute("select * from subjects where teacher_id=? order by name",(u["teacher_id"],)).fetchall()
+        lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
+    else:
+        subjects=c.execute("select * from subjects order by name").fetchall()
+        lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id order by l.lecture_date desc,l.lecture_no limit 100").fetchall()
     teachers=c.execute("select * from teachers order by name").fetchall()
-    lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id order by l.lecture_date desc,l.lecture_no limit 100").fetchall()
+    schedule_rows=c.execute("select lecture_date,lecture_no,course,section,room from lectures").fetchall()
     c.close()
-    opts="".join(f'<option value="{s["id"]}">{s["code"]} - {s["name"]}</option>' for s in subjects)
-    tops="".join(f'<option value="{t["id"]}">{t["name"]}</option>' for t in teachers)
-    slots="".join(f'<option value="{i}">Slot {i} ({a}-{b})</option>' for i,(a,b) in enumerate([("09:30","10:15"),("10:20","11:05"),("11:10","11:55"),("12:00","12:45"),("12:50","13:35"),("13:40","14:25"),("14:30","15:15"),("15:20","16:05"),("16:10","16:55")],1))
-    rows="".join(f'<tr><td>{x["lecture_date"]}</td><td>{x["lecture_no"]}</td><td>{x["code"]}</td><td>{x["room"]}</td><td>{x["section"]}</td></tr>' for x in lectures)
-    teacher_field=f'<label>Teacher<select name="teacher_id">{tops}</select></label>' if u["role"]=="ADMIN" else ""
-    body=f'<div class="card"><div class="head"><h3>Add lecture manually</h3></div><form class="form" method="post"><label>Subject<select name="subject_id">{opts}</select></label><label>Date<input type="date" name="lecture_date" value="{datetime.now().date()}" required></label><label>Slot<select name="lecture_no">{slots}</select></label><label>Course<input name="course" value="B.Tech"></label><label>Section<input name="section" value="C"></label><label>Room<input name="room" value="222"></label>{teacher_field}<div><button class="btn primary">Create Lecture</button></div></form></div><div class="card"><div class="head"><h3>Lecture schedule</h3></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Room</th><th>Section</th></tr>{rows}</table></div></div>'
+    subject_opts="".join(f'<option value="{s["id"]}">{s["name"]}</option>' for s in subjects)
+    teacher_opts="".join(f'<option value="{t["id"]}">{t["name"]}</option>' for t in teachers)
+    rows="".join(f'<tr><td>{x["lecture_date"]}</td><td>Slot {x["lecture_no"]}</td><td>{x["subject_name"]}</td><td>{x["room"]}</td><td>{x["section"]}</td><td>{x["course"]}</td></tr>' for x in lectures) or '<tr><td colspan="6">No lectures scheduled.</td></tr>'
+    schedule_json=json.dumps([dict(x) for x in schedule_rows]); today=datetime.now().date().isoformat()
+    teacher_field=f'<label>Teacher<select name="teacher_id">{teacher_opts}</select></label>' if u["role"]=="ADMIN" else ""
+    body=f"""<style>.lecture-form{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}}.lecture-form .wide{{grid-column:1/-1}}.slot-help{{padding:12px 14px;border:1px solid #24354f;border-radius:12px;background:#0b1627;color:#8fa0b8;font-size:12px}}.slot-help b{{color:#fff}}@media(max-width:800px){{.lecture-form{{grid-template-columns:1fr}}.lecture-form .wide{{grid-column:auto}}}}</style>
+<div class="card"><div class="head"><div><span class="pill">LECTURE MANAGEMENT</span><h2 style="margin:8px 0 3px">Add Lecture</h2><p class="muted">Only your subjects are shown. Select a weekday and a free slot for the selected room, section and course.</p></div></div>
+<form class="lecture-form" method="post" id="lecture-form"><label>Subject<select name="subject_id" required>{subject_opts}</select></label><label>Date<input type="date" name="lecture_date" id="lecture-date" min="{today}" required></label><label>Course<input name="course" id="lecture-course" value="B.Tech" required></label><label>Section<input name="section" id="lecture-section" value="C" required></label><label>Room Number<input name="room" id="lecture-room" value="222" required></label><label>Slot<select name="lecture_no" id="lecture-slot" required></select></label>{teacher_field}<div class="wide slot-help" id="slot-help">Choose the date, course, section and room. Only free slots will be available.</div><div class="wide"><button class="btn primary" type="submit">Create Lecture</button></div></form></div>
+<div class="card"><div class="head"><h3>Lecture Schedule</h3><span class="pill">{len(lectures)} lectures</span></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Room</th><th>Section</th><th>Course</th></tr>{rows}</table></div></div>
+<script>
+const lectureSchedule={schedule_json}, slots={json.dumps(times)}, d=document.getElementById("lecture-date"), c=document.getElementById("lecture-course"), s=document.getElementById("lecture-section"), r=document.getElementById("lecture-room"), sl=document.getElementById("lecture-slot"), h=document.getElementById("slot-help");
+function weekend(v){{if(!v)return false;const x=new Date(v+"T00:00:00").getDay();return x===0||x===6}}
+function refreshSlots(){{const date=d.value,course=c.value.trim(),section=s.value.trim(),room=r.value.trim();sl.innerHTML="";if(weekend(date)){{sl.disabled=true;h.innerHTML="<b>Saturday and Sunday are not allowed.</b>";return}}sl.disabled=false;let free=0;slots.forEach((t,i)=>{{const n=i+1,busy=lectureSchedule.some(x=>x.lecture_date===date&&Number(x.lecture_no)===n&&x.course===course&&x.section===section&&x.room===room),o=document.createElement("option");o.value=n;o.textContent="Slot "+n+" ("+t[0]+"–"+t[1]+")";o.disabled=busy;if(!busy)free++;sl.appendChild(o)}});sl.disabled=!free;h.innerHTML=free?"<b>"+free+" slots available.</b> Occupied slots are unavailable.":"<b>No free slots.</b> Change room, section, course or date."}}
+[d,c,s,r].forEach(x=>x.addEventListener("input",refreshSlots));d.addEventListener("change",()=>{{if(weekend(d.value)){{d.value="";refreshSlots()}}else refreshSlots()}});document.getElementById("lecture-form").addEventListener("submit",e=>{{if(weekend(d.value)){{e.preventDefault();alert("Saturday and Sunday are not allowed.")}}}});refreshSlots();
+</script>"""
     return page("Lecture Management",body)
 
 @app.route("/reports")
