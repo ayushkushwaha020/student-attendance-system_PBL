@@ -879,11 +879,10 @@ def cameras():
       if(!active.size) return;
       let d;
       try{d=await getDetector();}catch(_){return;}
-      const now=performance.now();
       for(const item of active.values()){
         if(!item.video.videoWidth||item.video.readyState<2) continue;
         try{
-          const result=d.detectForVideo(item.video,now);
+          const result=d.detectForVideo(item.video,performance.now());
           drawBoxes(item,result);
         }catch(error){console.warn("Face detection frame failed",error);}
       }
