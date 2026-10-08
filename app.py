@@ -28,16 +28,25 @@ def init():
     c=db()
     c.executescript("""
     CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT UNIQUE,password TEXT,role TEXT,display_name TEXT,student_id INTEGER,teacher_id INTEGER);
-    CREATE TABLE IF NOT EXISTS students(id INTEGER PRIMARY KEY,enrollment_no TEXT UNIQUE,roll_no TEXT,name TEXT,course TEXT DEFAULT 'B.Tech',semester INTEGER DEFAULT 3,section TEXT DEFAULT 'C');
+    CREATE TABLE IF NOT EXISTS students(id INTEGER PRIMARY KEY,enrollment_no TEXT UNIQUE,roll_no TEXT,name TEXT,course TEXT DEFAULT 'B.Tech',semester INTEGER DEFAULT 3,section TEXT DEFAULT 'C',group_name TEXT);
     CREATE TABLE IF NOT EXISTS teachers(id INTEGER PRIMARY KEY,employee_code TEXT UNIQUE,name TEXT);
-    CREATE TABLE IF NOT EXISTS subjects(id INTEGER PRIMARY KEY,code TEXT UNIQUE,name TEXT,semester INTEGER,section TEXT);
-    CREATE TABLE IF NOT EXISTS lectures(id INTEGER PRIMARY KEY,subject_id INTEGER,teacher_id INTEGER,lecture_no INTEGER,course TEXT,section TEXT,room TEXT,lecture_date TEXT);
+    CREATE TABLE IF NOT EXISTS subjects(id INTEGER PRIMARY KEY,code TEXT UNIQUE,name TEXT,semester INTEGER,section TEXT,teacher_id INTEGER);
+    CREATE TABLE IF NOT EXISTS lectures(id INTEGER PRIMARY KEY,subject_id INTEGER,teacher_id INTEGER,lecture_no INTEGER,course TEXT,section TEXT,room TEXT,lecture_date TEXT,start_time TEXT,end_time TEXT,group_name TEXT,slot_label TEXT,lecture_day TEXT,effective_from TEXT,status TEXT DEFAULT 'SCHEDULED',source_file_id INTEGER);
     CREATE TABLE IF NOT EXISTS attendance(id INTEGER PRIMARY KEY,student_id INTEGER,subject_id INTEGER,lecture_id INTEGER,attendance_date TEXT,source TEXT,marked_by INTEGER,UNIQUE(student_id,lecture_id,attendance_date));
     CREATE TABLE IF NOT EXISTS cameras(id INTEGER PRIMARY KEY,camera_name TEXT,location TEXT,stream_url TEXT,authorized INTEGER DEFAULT 0);
     """)
     cols={row["name"] for row in c.execute("pragma table_info(students)").fetchall()}
     if "roll_no" not in cols:
         c.execute("alter table students add column roll_no text")
+    if "group_name" not in cols:
+        c.execute("alter table students add column group_name text")
+    subject_cols={row["name"] for row in c.execute("pragma table_info(subjects)").fetchall()}
+    if "teacher_id" not in subject_cols:
+        c.execute("alter table subjects add column teacher_id integer")
+    lecture_cols={row["name"] for row in c.execute("pragma table_info(lectures)").fetchall()}
+    for col,typ in [("start_time","text"),("end_time","text"),("group_name","text"),("slot_label","text"),("lecture_day","text"),("effective_from","text"),("status","text"),("source_file_id","integer")]:
+        if col not in lecture_cols:
+            c.execute(f"alter table lectures add column {col} {typ}")
     data_path=os.path.join(os.path.dirname(__file__),"data","semester_3_c.json")
     if os.path.exists(data_path):
         with open(data_path,"r",encoding="utf-8") as f:
@@ -47,16 +56,16 @@ def init():
         demo=c.execute("select * from students where enrollment_no='DEMO001'").fetchone()
         target_row=c.execute("select * from students where enrollment_no=?",(target["admission_no"],)).fetchone() if target else None
         if demo and target and not target_row:
-            c.execute("update students set enrollment_no=?,roll_no=?,name=?,course=?,semester=?,section=? where id=?",(target["admission_no"],target["roll_no"],target["name"],seed["course"],seed["semester"],"C",demo["id"]))
+            c.execute("update students set enrollment_no=?,roll_no=?,name=?,course=?,semester=?,section=?,group_name=? where id=?",(target["admission_no"],target["roll_no"],target["name"],seed["course"],seed["semester"],"C",target.get("group"),demo["id"]))
             c.execute("update users set username=?,password=?,display_name=?,student_id=? where student_id=?",(target["admission_no"],target["roll_no"],target["name"],demo["id"],demo["id"]))
 
         for s in seed.get("students",[]):
             row=c.execute("select id from students where enrollment_no=?",(s["admission_no"],)).fetchone()
             if row:
                 sid=row["id"]
-                c.execute("update students set roll_no=?,name=?,course=?,semester=?,section=? where id=?",(s["roll_no"],s["name"],seed["course"],seed["semester"],"C",sid))
+                c.execute("update students set roll_no=?,name=?,course=?,semester=?,section=?,group_name=? where id=?",(s["roll_no"],s["name"],seed["course"],seed["semester"],"C",s.get("group"),sid))
             else:
-                c.execute("insert into students(enrollment_no,roll_no,name,course,semester,section) values(?,?,?,?,?,?)",(s["admission_no"],s["roll_no"],s["name"],seed["course"],seed["semester"],"C"))
+                c.execute("insert into students(enrollment_no,roll_no,name,course,semester,section,group_name) values(?,?,?,?,?,?,?)",(s["admission_no"],s["roll_no"],s["name"],seed["course"],seed["semester"],"C",s.get("group")))
                 sid=c.execute("select last_insert_rowid()").fetchone()[0]
             user=c.execute("select id from users where student_id=?",(sid,)).fetchone()
             if user:
@@ -88,9 +97,9 @@ def init():
             tid=teacher_ids.get(s.get("teacher_code"))
             row=c.execute("select id from subjects where code=?",(s["code"],)).fetchone()
             if row:
-                c.execute("update subjects set name=?,semester=?,section=? where id=?",(s["name"],seed["semester"],"C",row["id"]))
+                c.execute("update subjects set name=?,semester=?,section=?,teacher_id=? where id=?",(s["name"],seed["semester"],"C",tid,row["id"]))
             else:
-                c.execute("insert into subjects(code,name,semester,section) values(?,?,?,?)",(s["code"],s["name"],seed["semester"],"C"))
+                c.execute("insert into subjects(code,name,semester,section,teacher_id) values(?,?,?,?,?)",(s["code"],s["name"],seed["semester"],"C",tid))
             if tid:
                 c.execute("update lectures set teacher_id=? where subject_id=(select id from subjects where code=?) and teacher_id is null",(tid,s["code"]))
 
@@ -100,7 +109,7 @@ def init():
         if c.execute("select count(*) from users").fetchone()[0]==0:
             c.execute("insert into teachers(employee_code,name) values('T001','Demo Teacher')")
             tid=c.execute("select last_insert_rowid()").fetchone()[0]
-            c.execute("insert into students(enrollment_no,roll_no,name,course,semester,section) values('DEMO001','DEMO001','Demo Student','B.Tech',3,'C')")
+            c.execute("insert into students(enrollment_no,roll_no,name,course,semester,section,group_name) values('DEMO001','DEMO001','Demo Student','B.Tech',3,'C','25aiml(26c1)')")
             sid=c.execute("select last_insert_rowid()").fetchone()[0]
             c.execute("insert into users(username,password,role,display_name,teacher_id) values('teacher','teacher123','TEACHER','Demo Teacher',?)",(tid,))
             c.execute("insert into users(username,password,role,display_name,student_id) values('student','student123','STUDENT','Demo Student',?)",(sid,))
@@ -218,10 +227,11 @@ def dashboard():
     if u["role"]=="STUDENT":
         st=c.execute("select * from students where id=?",(u["student_id"],)).fetchone()
         rows=c.execute("""select s.name,s.code,count(l.id) total,
-        (select count(*) from attendance a where a.student_id=? and a.subject_id=s.id) present
+        (select count(*) from attendance a where a.student_id=? and a.subject_id=s.id and a.source!='AUTO_ABSENT') present
         from subjects s left join lectures l on l.subject_id=s.id and l.course=? and l.section=?
+          and (l.group_name is null or l.group_name='' or l.group_name=?)
         where s.semester=? and s.section=? group by s.id order by s.code""",
-        (st["id"],st["course"],st["section"],st["semester"],st["section"])).fetchall()
+        (st["id"],st["course"],st["section"],st["group_name"],st["semester"],st["section"])).fetchall()
         total=sum(r["total"] for r in rows); present=sum(min(r["present"],r["total"]) for r in rows); absent=max(total-present,0); overall=(present/total*100 if total else 0)
         def att_class(p):
             return "black" if p<=25 else "red" if p<50 else "orange" if p<75 else "greenText"
@@ -243,25 +253,53 @@ def dashboard():
 def attendance():
     c=db(); u=me()
     if request.method=="POST":
-        lecture_id=int(request.form["lecture_id"]); students=request.form.getlist("student_id")
+        lecture_id=int(request.form["lecture_id"]); selected={int(x) for x in request.form.getlist("student_id")}
         lec=c.execute("select * from lectures where id=?",(lecture_id,)).fetchone()
-        if u["role"]=="TEACHER" and (not lec or lec["teacher_id"]!=u["teacher_id"]): c.close(); flash("This lecture is not assigned to you.","danger"); return redirect(url_for("attendance"))
-        for sid in students:
-            c.execute("insert or ignore into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by) values(?,?,?,?,?,?)",(sid,lec["subject_id"],lecture_id,lec["lecture_date"],"TEACHER_OVERRIDE" if u["role"]=="TEACHER" else "ADMIN_OVERRIDE",u["id"]))
-        c.commit(); flash("Attendance saved.","success")
+        if not lec:
+            c.close(); flash("Lecture not found.","danger"); return redirect(url_for("attendance"))
+        if u["role"]=="TEACHER" and lec["teacher_id"]!=u["teacher_id"]:
+            c.close(); flash("This lecture is not assigned to you.","danger"); return redirect(url_for("attendance"))
+        applicable=c.execute("""select * from students where course=? and section=?
+            and (group_name is null or group_name='' or group_name=?) order by name""",
+            (lec["course"],lec["section"],lec["group_name"] or "")).fetchall()
+        source="TEACHER_OVERRIDE" if u["role"]=="TEACHER" else "ADMIN_OVERRIDE"
+        for st in applicable:
+            if st["id"] in selected:
+                c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
+                    values(?,?,?,?,?,?)
+                    on conflict(student_id,lecture_id,attendance_date) do update set subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by""",
+                    (st["id"],lec["subject_id"],lecture_id,lec["lecture_date"],source,u["id"]))
+            else:
+                c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
+                    values(?,?,?,?,?,?)
+                    on conflict(student_id,lecture_id,attendance_date) do update set subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by
+                    where attendance.source='AUTO_ABSENT'""",
+                    (st["id"],lec["subject_id"],lecture_id,lec["lecture_date"],"AUTO_ABSENT",None))
+        c.commit(); flash("Attendance saved. Unchecked students are recorded as absent.","success")
     if u["role"]=="TEACHER": lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
     else: lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id order by l.lecture_date desc,l.lecture_no").fetchall()
-    students=c.execute("select * from students where 1=1 order by name").fetchall(); c.close()
-    opts="".join(f'<option value="{l["id"]}">{l["lecture_date"]} · Slot {l["lecture_no"]} · {l["subject_name"]} · Room {l["room"]}</option>' for l in lectures)
-    checks="".join(f'<label><input type="checkbox" name="student_id" value="{s["id"]}"> {s["name"]} <span class="muted">({s["enrollment_no"]})</span></label><br>' for s in students)
-    return page("Attendance Register",f'<div class="card"><div class="head"><h3>Select lecture</h3></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Present Marks</button></div></form></div>')
+    students=c.execute("select * from students where 1=1 order by name").fetchall()
+    selected_lecture=lectures[0] if lectures else None
+    if selected_lecture:
+        students=c.execute("""select * from students where course=? and section=?
+            and (group_name is null or group_name='' or group_name=?) order by name""",
+            (selected_lecture["course"],selected_lecture["section"],selected_lecture["group_name"] or "")).fetchall()
+    present_ids=set()
+    if selected_lecture:
+        present_ids={r["student_id"] for r in c.execute("select student_id from attendance where lecture_id=? and source!='AUTO_ABSENT'",(selected_lecture["id"],)).fetchall()}
+    c.close()
+    opts="".join(f'<option value="{l["id"]}">{l["lecture_date"]} · Slot {l["lecture_no"]} · {l["subject_name"]} · {l["start_time"] or ""}-{l["end_time"] or ""} · Room {l["room"]}</option>' for l in lectures)
+    checks="".join(f'<label style="display:block;padding:7px"><input type="checkbox" name="student_id" value="{st["id"]}" {"checked" if st["id"] in present_ids else ""}> {st["name"]} <span class="muted">({st["enrollment_no"]})</span></label>' for st in students)
+    return page("Attendance Register",f'<div class="card"><div class="head"><h3>Select lecture</h3><span class="pill">{len(students)} students</span></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Attendance</button></div></form></div>')
 
 @app.route("/student/attendance")
 @need("STUDENT")
 def student_history():
-    c=db(); rows=c.execute("select a.attendance_date,a.source,s.code,s.name from attendance a join subjects s on s.id=a.subject_id where a.student_id=? order by a.id desc",(me()["student_id"],)).fetchall(); c.close()
-    trs="".join(f'<tr><td>{r["attendance_date"]}</td><td>{r["code"]}</td><td>{r["name"]}</td><td>{r["source"]}</td></tr>' for r in rows) or '<tr><td colspan="4">No attendance records.</td></tr>'
-    return page("Attendance History",f'<div class="card"><div class="table"><table><tr><th>Date</th><th>Code</th><th>Subject</th><th>Source</th></tr>{trs}</table></div></div>')
+    c=db(); rows=c.execute("""select a.attendance_date,a.source,s.code,s.name,l.lecture_no,l.start_time,l.end_time
+        from attendance a join subjects s on s.id=a.subject_id join lectures l on l.id=a.lecture_id
+        where a.student_id=? order by l.lecture_date desc,l.lecture_no""",(me()["student_id"],)).fetchall(); c.close()
+    trs="".join(f'<tr><td>{r["attendance_date"]}</td><td>Slot {r["lecture_no"]}</td><td>{r["code"]}</td><td>{r["name"]}</td><td>{"Present" if r["source"]!="AUTO_ABSENT" else "Absent"}</td><td>{r["source"]}</td></tr>' for r in rows) or '<tr><td colspan="6">No attendance records.</td></tr>'
+    return page("Attendance History",f'<div class="card"><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Code</th><th>Subject</th><th>Status</th><th>Source</th></tr>{trs}</table></div></div>')
 
 @app.route("/students")
 @need("ADMIN")
@@ -298,10 +336,7 @@ def import_pdf():
     return page("PDF Import",f'<div class="hero"><div><span class="pill">AUTOMATIC DOCUMENT INGESTION</span><h2>Upload university PDF</h2><p class="muted">Timetable and student-list PDFs can be analyzed here.</p></div></div><div class="card"><form class="form" method="post" enctype="multipart/form-data"><label class="wide">PDF file<input type="file" name="pdf" accept=".pdf" required></label><div><button class="btn primary">Analyze PDF</button></div></form></div>{("<div class=card><div class=head><h3>Result</h3></div><div style=padding:20px>"+result+"</div></div>") if result else ""}')
 
 if __name__=="__main__":
-    init()
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)))
-else:
-    init()
 
 # Production upgrade staging enabled.
 
@@ -328,7 +363,8 @@ def lecture_manager():
         teacher_id=u["teacher_id"] if u["role"]=="TEACHER" else (int(request.form.get("teacher_id")) if request.form.get("teacher_id") else None)
         times=[("09:30","10:15"),("10:20","11:05"),("11:10","11:55"),("12:00","12:45"),("12:50","13:35"),("13:40","14:25"),("14:30","15:15"),("15:20","16:05"),("16:10","16:55")]
         st,en=times[slot-1]
-        c.execute("insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date) values(?,?,?,?,?,?,?)",(sid,teacher_id,slot,request.form.get("course","BCA"),request.form.get("section","G"),request.form.get("room","222"),request.form["lecture_date"]))
+        st,en=times[slot-1]
+        c.execute("insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,start_time,end_time,slot_label,status) values(?,?,?,?,?,?,?,?,?,?,?)",(sid,teacher_id,slot,request.form.get("course","B.Tech"),request.form.get("section","C"),request.form.get("room","222"),request.form["lecture_date"],st,en,f"Slot {slot}","MANUAL"))
         audit("CREATE_LECTURE","lecture",c.execute("select last_insert_rowid()").fetchone()[0],"manual lecture")
         c.commit(); flash("Lecture created.","success")
     subjects=c.execute("select * from subjects order by code").fetchall()
@@ -340,7 +376,7 @@ def lecture_manager():
     slots="".join(f'<option value="{i}">Slot {i} ({a}-{b})</option>' for i,(a,b) in enumerate([("09:30","10:15"),("10:20","11:05"),("11:10","11:55"),("12:00","12:45"),("12:50","13:35"),("13:40","14:25"),("14:30","15:15"),("15:20","16:05"),("16:10","16:55")],1))
     rows="".join(f'<tr><td>{x["lecture_date"]}</td><td>{x["lecture_no"]}</td><td>{x["code"]}</td><td>{x["room"]}</td><td>{x["section"]}</td></tr>' for x in lectures)
     teacher_field=f'<label>Teacher<select name="teacher_id">{tops}</select></label>' if u["role"]=="ADMIN" else ""
-    body=f'<div class="card"><div class="head"><h3>Add lecture manually</h3></div><form class="form" method="post"><label>Subject<select name="subject_id">{opts}</select></label><label>Date<input type="date" name="lecture_date" value="{datetime.now().date()}" required></label><label>Slot<select name="lecture_no">{slots}</select></label><label>Course<input name="course" value="BCA"></label><label>Section<input name="section" value="G"></label><label>Room<input name="room" value="222"></label>{teacher_field}<div><button class="btn primary">Create Lecture</button></div></form></div><div class="card"><div class="head"><h3>Lecture schedule</h3></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Room</th><th>Section</th></tr>{rows}</table></div></div>'
+    body=f'<div class="card"><div class="head"><h3>Add lecture manually</h3></div><form class="form" method="post"><label>Subject<select name="subject_id">{opts}</select></label><label>Date<input type="date" name="lecture_date" value="{datetime.now().date()}" required></label><label>Slot<select name="lecture_no">{slots}</select></label><label>Course<input name="course" value="B.Tech"></label><label>Section<input name="section" value="C"></label><label>Room<input name="room" value="222"></label>{teacher_field}<div><button class="btn primary">Create Lecture</button></div></form></div><div class="card"><div class="head"><h3>Lecture schedule</h3></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Room</th><th>Section</th></tr>{rows}</table></div></div>'
     return page("Lecture Management",body)
 
 @app.route("/reports")
@@ -350,8 +386,8 @@ def reports():
     students=c.execute("select * from students order by name").fetchall()
     rows=[]
     for s in students:
-        total=c.execute("select count(*) from lectures where course=? and section=?",(s["course"],s["section"])).fetchone()[0]
-        present=c.execute("select count(*) from attendance where student_id=?",(s["id"],)).fetchone()[0]
+        total=c.execute("select count(*) from lectures where course=? and section=? and (group_name is null or group_name='' or group_name=?)",(s["course"],s["section"],s["group_name"] or "")).fetchone()[0]
+        present=c.execute("select count(*) from attendance where student_id=? and source!='AUTO_ABSENT'",(s["id"],)).fetchone()[0]
         pct=(present/total*100) if total else 0
         rows.append(f'<tr><td>{s["name"]}</td><td>{s["enrollment_no"]}</td><td>{s["course"]}</td><td>{s["section"]}</td><td>{pct:.1f}%</td><td>{present}/{total}</td></tr>')
     c.close()
@@ -392,7 +428,91 @@ def recognition_api():
     if result=="MATCH" and lid and sid:
         lec=c.execute("select * from lectures where id=?",(lid,)).fetchone()
         if lec and not c.execute("select id from attendance where student_id=? and lecture_id=?",(sid,lid)).fetchone():
-            c.execute("insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,confidence,note) values(?,?,?,?,?,?,?)",(sid,lec["subject_id"],lid,lec["lecture_date"],"AI_RECOGNITION",confidence,"Recognition API"))
+            c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
+                values(?,?,?,?,?,?)
+                on conflict(student_id,lecture_id,attendance_date) do update set subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by""",
+                (sid,lec["subject_id"],lid,lec["lecture_date"],"AI_RECOGNITION",None))
     c.commit(); c.close(); return {"ok":True,"result":result,"confidence":confidence}
 
+
+# --- PDF timetable scheduler + automatic absence engine ---
+from datetime import date, timedelta
+from zoneinfo import ZoneInfo
+
+APP_START_DATE = date(2026, 10, 1)
+IST = ZoneInfo("Asia/Kolkata")
+
+def _load_timetable():
+    with open(os.path.join(os.path.dirname(__file__),"data","timetable_3_c.json"),"r",encoding="utf-8") as f:
+        return json.load(f)
+
+def _get_schedule_teacher(c, employee_code):
+    if not employee_code:
+        return None
+    row=c.execute("select id from teachers where employee_code=?",(employee_code,)).fetchone()
+    return row["id"] if row else None
+
+def _get_schedule_subject(c, code, name, teacher_id):
+    row=c.execute("select id from subjects where code=?",(code,)).fetchone()
+    if row:
+        c.execute("update subjects set name=?,semester=3,section='C',teacher_id=? where id=?",(name,teacher_id,row["id"]))
+        return row["id"]
+    c.execute("insert into subjects(code,name,semester,section,teacher_id) values(?,?,?,?,?)",(code,name,3,"C",teacher_id))
+    return c.execute("select last_insert_rowid()").fetchone()[0]
+
+def ensure_timetable_and_absences():
+    tt=_load_timetable()
+    today=datetime.now(IST).date()
+    end_date=max(today,APP_START_DATE)
+    slots={int(x["no"]):x for x in tt["slots"]}
+    day_numbers={"Monday":0,"Tuesday":1,"Wednesday":2,"Thursday":3,"Friday":4}
+    c=db()
+    for n in range((end_date-APP_START_DATE).days+1):
+        d=APP_START_DATE+timedelta(days=n)
+        day=d.strftime("%A")
+        for e in tt["entries"]:
+            if day_numbers.get(e["day"])!=d.weekday():
+                continue
+            first=slots[e["slots"][0]]
+            last=slots[e["slots"][-1]]
+            tid=_get_schedule_teacher(c,e.get("teacher_code"))
+            sid=_get_schedule_subject(c,e["subject_code"],e["subject_name"],tid)
+            group=e.get("group")
+            exists=c.execute("""select id from lectures where subject_id=? and lecture_date=? and lecture_no=? and
+                course='B.Tech' and section='C' and ifnull(group_name,'')=ifnull(?, '')""",
+                (sid,d.isoformat(),e["slots"][0],group)).fetchone()
+            if not exists:
+                label=slots[e["slots"][0]]["label"]
+                if len(e["slots"])>1:
+                    label += "-" + slots[e["slots"][-1]]["label"]
+                c.execute("""insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,
+                    start_time,end_time,group_name,slot_label,lecture_day,effective_from,status)
+                    values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (sid,tid,e["slots"][0],"B.Tech","C",tt["room"],d.isoformat(),first["start"],last["end"],
+                     group,"Slot "+label,day,tt["effective_from"],"PDF_SCHEDULED"))
+    c.commit()
+
+    now=datetime.now(IST)
+    lectures=c.execute("""select * from lectures where lecture_date>=? and lecture_date<=?
+        and course='B.Tech' and section='C' and status='PDF_SCHEDULED'""",
+        (APP_START_DATE.isoformat(),today.isoformat())).fetchall()
+    for lec in lectures:
+        try:
+            end_dt=datetime.fromisoformat(lec["lecture_date"]+"T"+(lec["end_time"] or "23:59")).replace(tzinfo=IST)
+        except Exception:
+            end_dt=datetime.fromisoformat(lec["lecture_date"]+"T23:59").replace(tzinfo=IST)
+        if end_dt>now:
+            continue
+        students=c.execute("""select * from students where course='B.Tech' and section='C'
+            and (group_name is null or group_name='' or group_name=?)""",(lec["group_name"] or "",)).fetchall()
+        for st in students:
+            if not c.execute("select id from attendance where student_id=? and lecture_id=? and attendance_date=?",
+                             (st["id"],lec["id"],lec["lecture_date"])).fetchone():
+                c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
+                    values(?,?,?,?,?,NULL)""",(st["id"],lec["subject_id"],lec["id"],lec["lecture_date"],"AUTO_ABSENT"))
+    c.commit()
+    c.close()
+
+init()
 upgrade_schema()
+ensure_timetable_and_absences()
