@@ -415,7 +415,7 @@ def dashboard():
         return page("My Attendance",body)
     if u["role"]=="TEACHER":
         t=c.execute("select * from teachers where id=?",(u["teacher_id"],)).fetchone()
-        ls=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall(); c.close()
+        ls=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where (l.teacher_id=? or s.teacher_id=?) and s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],u["teacher_id"])).fetchall(); c.close()
         rows="".join(f'<tr onclick="location.href=\'/attendance?lecture_id={l["id"]}\'" style="cursor:pointer"><td>{l["lecture_date"]}</td><td>Slot {l["lecture_no"]}</td><td><b>{l["subject_name"]}</b><small>{l["code"]}</small></td><td>{l["start_time"] or ""}–{l["end_time"] or ""}</td><td>{l["room"]}</td></tr>' for l in ls) or '<tr><td colspan="5">No assigned lectures.</td></tr>'
         return page("Teacher Dashboard",f'<div class="hero"><div><span class="pill">TEACHER WORKSPACE</span><h2>Hello, {t["name"]}</h2><p class="muted">Click any lecture to open its attendance sheet.</p></div></div><div class="card"><div class="head"><h3>All Assigned Lectures</h3><span class="pill">{len(ls)} lectures</span></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Time</th><th>Room</th></tr>{rows}</table></div></div>')
     stats=[("Students",c.execute("select count(*) from students").fetchone()[0]),("Teachers",c.execute("select count(*) from teachers").fetchone()[0]),("Cameras",c.execute("select count(*) from cameras").fetchone()[0]),("Attendance",c.execute("select count(*) from attendance").fetchone()[0])]; c.close()
@@ -728,7 +728,7 @@ def lectures():
             flash("Lecture created successfully.","success")
     if u["role"]=="TEACHER":
         subjects=c.execute("""select distinct s.* from subjects s left join lectures l on l.subject_id=s.id where s.teacher_id=? or l.teacher_id=? order by s.name""",(u["teacher_id"],u["teacher_id"])).fetchall()
-        lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
+        lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where (l.teacher_id=? or s.teacher_id=?) and s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],u["teacher_id"])).fetchall()
     else:
         subjects=c.execute("select * from subjects order by name").fetchall()
         lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id order by l.lecture_date desc,l.lecture_no limit 100").fetchall()
