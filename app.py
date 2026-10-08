@@ -378,11 +378,33 @@ def attendance():
 @app.route("/student/attendance")
 @need("STUDENT")
 def student_history():
-    c=db(); rows=c.execute("""select a.attendance_date,a.source,s.code,s.name,l.lecture_no,l.start_time,l.end_time
-        from attendance a join subjects s on s.id=a.subject_id join lectures l on l.id=a.lecture_id
-        where a.student_id=? order by l.lecture_date desc,l.lecture_no""",(me()["student_id"],)).fetchall(); c.close()
-    trs="".join(f'<tr><td>{r["attendance_date"]}</td><td>Slot {r["lecture_no"]}</td><td>{r["code"]}</td><td>{r["name"]}</td><td>{"Present" if r["source"] in ("TEACHER_OVERRIDE","ADMIN_OVERRIDE","AI_RECOGNITION") else "Absent"}</td><td>{r["source"]}</td></tr>' for r in rows) or '<tr><td colspan="6">No attendance records.</td></tr>'
-    return page("Attendance History",f'<div class="card"><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Code</th><th>Subject</th><th>Status</th><th>Source</th></tr>{trs}</table></div></div>')
+    u=me(); c=db()
+    st=c.execute("select * from students where id=?",(u["student_id"],)).fetchone()
+    today=datetime.now(IST).date().isoformat()
+    rows=c.execute("""select l.lecture_date,l.lecture_day,l.lecture_no,l.slot_label,l.start_time,l.end_time,l.room,
+        s.code,s.name subject_name,a.source
+        from lectures l join subjects s on s.id=l.subject_id
+        left join attendance a on a.lecture_id=l.id and a.student_id=?
+        where l.lecture_date>=? and l.lecture_date<=?
+          and l.course=? and l.section=? and l.status='PDF_SCHEDULED'
+          and s.code not in ('SELF','MENTOR')
+          and (l.group_name is null or l.group_name='' or l.group_name=?)
+        order by l.lecture_date desc,l.lecture_no desc""",
+        (u["student_id"],APP_START_DATE.isoformat(),today,st["course"],st["section"],st["group_name"] or "")).fetchall()
+    c.close()
+    present_sources=("TEACHER_OVERRIDE","ADMIN_OVERRIDE","AI_RECOGNITION")
+    present_count=sum(1 for r in rows if r["source"] in present_sources)
+    total_count=len(rows); absent_count=total_count-present_count
+    trs=""
+    for r in rows:
+        status="Present" if r["source"] in present_sources else "Absent"
+        source=r["source"] or "AUTO_ABSENT"
+        status_cls="green" if status=="Present" else "red"
+        trs += f'<tr><td>{r["lecture_date"]}<small>{r["lecture_day"]}</small></td><td>Slot {r["lecture_no"]}<small>{r["slot_label"] or ""} · {r["start_time"] or ""}-{r["end_time"] or ""}</small></td><td><b>{r["code"]}</b><small>{r["subject_name"]}</small></td><td>{r["room"]}</td><td><span class="pill {status_cls}">{status}</span></td><td>{source}</td></tr>'
+    if not trs:
+        trs='<tr><td colspan="6">No scheduled attendance records found for the app period.</td></tr>'
+    body=f'<div class="hero"><div><span class="pill">COMPLETE HISTORY</span><h2>Attendance History</h2><p class="muted">Every scheduled class from {APP_START_DATE.isoformat()} through {today} is shown according to the timetable.</p></div><div class="overall-box"><div class="value">{present_count}/{total_count}</div><div class="label">PRESENT / TOTAL</div><div class="overall-breakdown"><div><span>Present</span><b>{present_count}</b></div><div><span>Absent</span><b>{absent_count}</b></div><div><span>Total</span><b>{total_count}</b></div></div></div></div><div class="card"><div class="head"><h3>Class-by-Class Attendance</h3><span class="pill">{total_count} scheduled classes</span></div><div class="table"><table><tr><th>Date</th><th>Slot / Time</th><th>Subject</th><th>Room</th><th>Status</th><th>Source</th></tr>{trs}</table></div></div>'
+    return page("Attendance History",body)
 
 @app.route("/students")
 @need("ADMIN")
