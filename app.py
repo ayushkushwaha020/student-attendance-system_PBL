@@ -16,6 +16,26 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}.side{
 .brand b{display:block}.brand small{color:#7d8ca5}.nav{color:#8f9db4;font-weight:700;font-size:12px}.nav a{display:block;padding:12px 11px;border-radius:10px;margin:4px 0}.nav a:hover{background:#15233a;color:#fff}
 .main{margin-left:245px;width:calc(100% - 245px)}.top{height:82px;border-bottom:1px solid #20304a;padding:18px 30px;display:flex;justify-content:space-between;align-items:center;background:#091321dd;backdrop-filter:blur(12px);position:sticky;top:0;z-index:2}
 .top h1{font-size:22px;margin:3px 0}.muted{color:#8291aa}.content{padding:28px;max-width:1500px}.hero,.card{background:linear-gradient(145deg,#101d30,#0b1525);border:1px solid #22344f;border-radius:17px;box-shadow:0 18px 45px #0004}.hero{padding:26px;display:flex;justify-content:space-between;gap:20px;margin-bottom:18px}.hero h2{margin:8px 0;font-size:28px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.stat{padding:18px}.stat span{display:block;color:#8492aa;font-size:11px}.stat b{display:block;font-size:27px;margin-top:5px}.card{overflow:hidden;margin-bottom:18px}.head{padding:17px 19px;border-bottom:1px solid #22344f;display:flex;justify-content:space-between;align-items:center}.head h3{margin:3px 0}.table{overflow:auto}table{width:100%;border-collapse:collapse;min-width:650px}th,td{text-align:left;padding:12px 15px;border-bottom:1px solid #1b2a40}th{font-size:10px;color:#7888a1;text-transform:uppercase}td b{color:#fff}.btn{display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid #304565;background:#15243a;font-weight:800}.btn.primary{background:linear-gradient(135deg,#6978ff,#4d60dd);border-color:#7180ff}.btn.green{background:#10392f;border-color:#246b55}.form{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:18px}.form label{color:#8492aa;font-size:11px;font-weight:700}.form input,.form select{width:100%;margin-top:6px;padding:11px;border-radius:9px;border:1px solid #2a3d59;background:#07111e;color:#fff}.form .wide{grid-column:1/-1}.flash{padding:12px 15px;border:1px solid #2c4262;background:#101e31;border-radius:10px;margin-bottom:12px}.pill{display:inline-block;padding:5px 8px;border-radius:999px;background:#17294a;color:#9eb0ff;font-size:10px;font-weight:900}.login{min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 70% 10%,#1d2d61,#07101d 45%)}.loginbox{width:min(430px,92vw);padding:30px}.loginbox input{display:block;width:100%;padding:13px;margin:8px 0 14px;border:1px solid #2a3d59;background:#07111e;color:#fff;border-radius:10px}.loginbox button{width:100%;padding:13px;border:0;border-radius:10px;background:#6575ff;color:#fff;font-weight:900}.ring{font-size:38px;font-weight:900;color:#66dfb5}.greenText{color:#55d9ad}.orange{color:#ffb15e}.red{color:#ff6878}.black{color:#fff}.small{font-size:11px}
+.stat small{display:block;line-height:1.45}
+.attendance-card{position:relative;padding:20px;min-height:182px;display:flex;flex-direction:column;justify-content:space-between;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease}
+.attendance-card:hover{transform:translateY(-3px);border-color:#3a5278;box-shadow:0 22px 50px #0006}
+.attendance-code{font-size:11px;color:#91a5c2;font-weight:800;letter-spacing:.04em}
+.attendance-name{font-size:14px;font-weight:750;line-height:1.4;min-height:40px;margin-top:8px}
+.attendance-percent{font-size:30px;font-weight:950;line-height:1;margin:12px 0}
+.attendance-meta{display:flex;gap:16px;flex-wrap:wrap;color:#8fa0b8;font-size:11px}
+.attendance-meta b{color:#f4f7ff;font-size:13px;margin-right:3px}
+.attendance-status{display:inline-flex;align-items:center;width:max-content;margin-top:10px;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.02em}
+.status-black{background:#151b24;color:#fff;border:1px solid #3b4553}
+.status-red{background:#3b1820;color:#ff8793;border:1px solid #71303d}
+.status-orange{background:#3a2815;color:#ffc277;border:1px solid #775022}
+.status-green{background:#10372d;color:#70e4bd;border:1px solid #246b55}
+.overall-box{min-width:245px;padding:18px 20px;border:1px solid #273b59;border-radius:15px;background:#0a1728}
+.overall-box .value{font-size:40px;font-weight:950;line-height:1}
+.overall-box .label{font-size:11px;color:#8291aa;margin-top:4px}
+.overall-breakdown{display:flex;gap:18px;margin-top:14px}
+.overall-breakdown span{font-size:10px;color:#8291aa}
+.overall-breakdown b{display:block;font-size:16px;color:#fff;margin-top:2px}
+@media(max-width:900px){.overall-box{min-width:0}}
 @media(max-width:900px){.side{width:70px}.brand div:not(.logo),.nav a span{display:none}.main{margin-left:70px;width:calc(100% - 70px)}.grid{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:1fr}.hero{flex-direction:column}}
 """
 
@@ -244,9 +264,61 @@ def dashboard():
         total=sum(r["total"] for r in rows); present=sum(min(r["present"],r["total"]) for r in rows); absent=max(total-present,0); overall=(present/total*100 if total else 0)
         def att_class(p):
             return "black" if p<=25 else "red" if p<50 else "orange" if p<75 else "greenText"
-        cards="".join(f'<div class="card stat"><span>{r["code"]}</span><b class="{att_class((r["present"]/r["total"]*100 if r["total"] else 0))}">{(r["present"]/r["total"]*100 if r["total"] else 0):.0f}%</b><small>{r["name"]}</small><small class="muted">{r["present"]} Present · {r["total"]} Lectures</small></div>' for r in rows)
+        def att_class(p):
+            return "black" if p <= 25 else "red" if p < 50 else "orange" if p < 75 else "greenText"
+
+        def status_class(p):
+            return "status-black" if p <= 25 else "status-red" if p < 50 else "status-orange" if p < 75 else "status-green"
+
+        def status_label(p):
+            return "0–25% · Low" if p <= 25 else "25–50% · Needs Improvement" if p < 50 else "50–75% · Average" if p < 75 else "75–100% · Good"
+
+        cards=""
+        for r in rows:
+            pct=(r["present"]/r["total"]*100 if r["total"] else 0)
+            present_count=min(r["present"],r["total"])
+            absent_count=max(r["total"]-present_count,0)
+            cards += f'''<div class="card attendance-card">
+                <div>
+                    <div class="attendance-code">{r["code"]}</div>
+                    <div class="attendance-name">{r["name"]}</div>
+                    <div class="attendance-percent {att_class(pct)}">{pct:.0f}%</div>
+                    <div class="attendance-meta">
+                        <span><b>{present_count}</b> Present</span>
+                        <span><b>{absent_count}</b> Absent</span>
+                        <span><b>{r["total"]}</b> Total</span>
+                    </div>
+                </div>
+                <span class="attendance-status {status_class(pct)}">{status_label(pct)}</span>
+            </div>'''
         c.close()
-        body=f'<div class="hero"><div><span class="pill">STUDENT PORTAL</span><h2>{st["name"]}</h2><p class="muted">Admission: {st["enrollment_no"]} · Roll No: {st["roll_no"] or "—"} · {st["course"]} · Semester {st["semester"]} · Section {st["section"]}</p></div><div class="ring {att_class(overall)}">{overall:.0f}%<div class="small muted">overall attendance</div></div></div><div class="grid">{cards}</div><div class="card"><div class="head"><h3>Attendance Summary</h3></div><div style="padding:20px;display:flex;gap:35px;flex-wrap:wrap"><div><span class="muted">Present</span><b style="display:block;font-size:25px">{present}</b></div><div><span class="muted">Absent</span><b style="display:block;font-size:25px">{absent}</b></div><div><span class="muted">Total Lectures</span><b style="display:block;font-size:25px">{total}</b></div></div></div><a class="btn primary" href="/student/attendance">View attendance history →</a>'
+        body=f'''<div class="hero">
+            <div>
+                <span class="pill">STUDENT PORTAL</span>
+                <h2>{st["name"]}</h2>
+                <p class="muted">Admission: {st["enrollment_no"]} · Roll No: {st["roll_no"] or "—"} · {st["course"]} · Semester {st["semester"]} · Section {st["section"]}</p>
+            </div>
+            <div class="overall-box">
+                <div class="value {att_class(overall)}">{overall:.0f}%</div>
+                <div class="label">OVERALL ATTENDANCE</div>
+                <div class="overall-breakdown">
+                    <div><span>Present</span><b>{present}</b></div>
+                    <div><span>Absent</span><b>{absent}</b></div>
+                    <div><span>Total</span><b>{total}</b></div>
+                </div>
+            </div>
+        </div>
+        <div class="head" style="padding:0 2px 12px;border:0"><h3>Subject-wise Attendance</h3><span class="muted small">{len(rows)} subjects</span></div>
+        <div class="grid">{cards}</div>
+        <div class="card">
+            <div class="head"><h3>Attendance Summary</h3><span class="pill">{overall:.0f}% overall</span></div>
+            <div style="padding:20px;display:flex;gap:35px;flex-wrap:wrap">
+                <div><span class="muted">Present</span><b style="display:block;font-size:25px">{present}</b></div>
+                <div><span class="muted">Absent</span><b style="display:block;font-size:25px">{absent}</b></div>
+                <div><span class="muted">Total Lectures</span><b style="display:block;font-size:25px">{total}</b></div>
+            </div>
+        </div>
+        <a class="btn primary" href="/student/attendance">View attendance history →</a>'''
         return page("My Attendance",body)
     if u["role"]=="TEACHER":
         t=c.execute("select * from teachers where id=?",(u["teacher_id"],)).fetchone()
