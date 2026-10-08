@@ -402,6 +402,7 @@ def student_profile():
         username=request.form.get("username","").strip()
         new_password=request.form.get("password","").strip()
         profile_picture=request.form.get("profile_picture","").strip()
+        remove_profile_picture=request.form.get("remove_profile_picture")=="1"
         if not username:
             flash("Username is required.","danger")
         else:
@@ -409,14 +410,17 @@ def student_profile():
             if conflict:
                 flash("That username is already in use.","danger")
             else:
-                if profile_picture:
+                if remove_profile_picture:
+                    profile_picture=""
+                elif profile_picture:
                     try:
                         header,payload=profile_picture.split(",",1); raw=base64.b64decode(payload,validate=True)
                         if not header.startswith("data:image/") or len(raw)>2_500_000: raise ValueError()
                     except Exception:
                         profile_picture=""
                         flash("Profile picture could not be saved. Please use a smaller image.","danger")
-                c.execute("update students set profile_picture=? where id=?",(profile_picture or st["profile_picture"],st["id"]))
+                saved_picture = "" if remove_profile_picture else (profile_picture or st["profile_picture"])
+                c.execute("update students set profile_picture=? where id=?",(saved_picture,st["id"]))
                 if new_password:
                     c.execute("update users set username=?,password=? where id=?",(username,new_password,u["id"]))
                 else:
@@ -441,7 +445,8 @@ def student_profile():
           <label>Course / Semester<input value="{st["course"]} · Semester {st["semester"]}" disabled></label>
           <label>Section / Group<input value="{st["section"]} · {st["group_name"] or "—"}" disabled></label>
           <div class="wide"><small class="muted">Name and all university-issued academic details are protected from student-side editing.</small></div>
-          <div class="wide profile-picture-box"><h3 style="margin:0 0 5px">Profile Picture</h3><p class="muted small">Choose a picture to replace the AttendAI logo shown beside your account.</p>{profile_preview}<input id="profilePictureFile" type="file" accept="image/*"><input id="profilePictureData" name="profile_picture" type="hidden"></div>
+          <div class="wide profile-picture-box"><h3 style="margin:0 0 5px">Profile Picture</h3><p class="muted small">Choose a picture to replace the AttendAI logo shown beside your account.</p>{profile_preview}<input id="profilePictureFile" type="file" accept="image/*"><input id="profilePictureData" name="profile_picture" type="hidden">
+            {('<button class="btn danger" type="submit" name="remove_profile_picture" value="1" onclick="return confirm(\'Remove your profile picture?\')">Remove PFP</button>' if profile_src else '')}</div>
           <div class="wide"><button class="btn primary" type="submit">Save Profile Changes</button></div>
         </form>
       </div>
