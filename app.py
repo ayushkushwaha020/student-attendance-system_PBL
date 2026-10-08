@@ -121,12 +121,12 @@ def init():
             if existing:
                 teacher_subject_codes=[x["code"] for x in seed.get("subjects",[]) if x.get("teacher_code")==t["employee_code"]]
                 teacher_password=teacher_subject_codes[0] if teacher_subject_codes else t["employee_code"]
-                teacher_username=t["name"].upper()
+                teacher_username=t["name"].replace("Prof. Dr. ","").replace("Dr. ","").replace("Prof. ","").strip().upper()
                 c.execute("update users set username=?,password=?,role='TEACHER',display_name=? where id=?",(teacher_username,teacher_password,t["name"],existing["id"]))
             else:
                 teacher_subject_codes=[x["code"] for x in seed.get("subjects",[]) if x.get("teacher_code")==t["employee_code"]]
                 teacher_password=teacher_subject_codes[0] if teacher_subject_codes else t["employee_code"]
-                teacher_username=t["name"].upper()
+                teacher_username=t["name"].replace("Prof. Dr. ","").replace("Dr. ","").replace("Prof. ","").strip().upper()
                 c.execute("insert or ignore into users(username,password,role,display_name,teacher_id) values(?,?,?,?,?)",(teacher_username,teacher_password,"TEACHER",t["name"],tid))
 
         legacy={"DSA":"BECS301A","AIML":"BEAI302A","IOT":"BEAI301","MATH":"BEMT301"}
@@ -214,7 +214,7 @@ def login():
             # Accept any subject code assigned to that teacher as the password.
             u=c.execute("""select u.* from users u join teachers t on t.id=u.teacher_id
                            join subjects s on s.teacher_id=t.id
-                           where u.role='TEACHER' and upper(t.name)=? and s.code=?""",
+                           where u.role='TEACHER' and upper(trim(replace(replace(replace(t.name,'Prof. Dr. ',''),'Dr. ',''),'Prof. ','')))=? and s.code=?""",
                         (username.upper(),password.upper())).fetchone()
         c.close()
         if u: session["uid"]=u["id"]; return redirect(url_for("dashboard"))
