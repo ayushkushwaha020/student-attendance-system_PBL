@@ -1,5 +1,5 @@
-from flask import Flask, request, redirect, url_for, session, render_template_string, flash
-import sqlite3, os
+from flask import Flask, request, redirect, url_for, session, render_template_string, flash, send_file
+import sqlite3, os, json, csv, io
 from datetime import datetime
 from functools import wraps
 
@@ -28,24 +28,84 @@ def init():
     c=db()
     c.executescript("""
     CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT UNIQUE,password TEXT,role TEXT,display_name TEXT,student_id INTEGER,teacher_id INTEGER);
-    CREATE TABLE IF NOT EXISTS students(id INTEGER PRIMARY KEY,enrollment_no TEXT UNIQUE,name TEXT,course TEXT DEFAULT 'BCA',semester INTEGER DEFAULT 3,section TEXT DEFAULT 'G');
+    CREATE TABLE IF NOT EXISTS students(id INTEGER PRIMARY KEY,enrollment_no TEXT UNIQUE,roll_no TEXT,name TEXT,course TEXT DEFAULT 'B.Tech',semester INTEGER DEFAULT 3,section TEXT DEFAULT 'C');
     CREATE TABLE IF NOT EXISTS teachers(id INTEGER PRIMARY KEY,employee_code TEXT UNIQUE,name TEXT);
     CREATE TABLE IF NOT EXISTS subjects(id INTEGER PRIMARY KEY,code TEXT UNIQUE,name TEXT,semester INTEGER,section TEXT);
     CREATE TABLE IF NOT EXISTS lectures(id INTEGER PRIMARY KEY,subject_id INTEGER,teacher_id INTEGER,lecture_no INTEGER,course TEXT,section TEXT,room TEXT,lecture_date TEXT);
     CREATE TABLE IF NOT EXISTS attendance(id INTEGER PRIMARY KEY,student_id INTEGER,subject_id INTEGER,lecture_id INTEGER,attendance_date TEXT,source TEXT,marked_by INTEGER,UNIQUE(student_id,lecture_id,attendance_date));
     CREATE TABLE IF NOT EXISTS cameras(id INTEGER PRIMARY KEY,camera_name TEXT,location TEXT,stream_url TEXT,authorized INTEGER DEFAULT 0);
     """)
-    if c.execute("select count(*) from users").fetchone()[0] == 0:
-        c.execute("insert into teachers(employee_code,name) values('T001','Demo Teacher')")
-        tid=c.execute("select last_insert_rowid()").fetchone()[0]
-        c.execute("insert into students(enrollment_no,name,course,semester,section) values('DEMO001','Demo Student','BCA',3,'G')")
-        sid=c.execute("select last_insert_rowid()").fetchone()[0]
-        c.execute("insert into users(username,password,role,display_name,teacher_id) values('teacher','teacher123','TEACHER','Demo Teacher',?)",(tid,))
-        c.execute("insert into users(username,password,role,display_name,student_id) values('student','student123','STUDENT','Demo Student',?)",(sid,))
+    cols={row["name"] for row in c.execute("pragma table_info(students)").fetchall()}
+    if "roll_no" not in cols:
+        c.execute("alter table students add column roll_no text")
+    data_path=os.path.join(os.path.dirname(__file__),"data","semester_3_c.json")
+    if os.path.exists(data_path):
+        with open(data_path,"r",encoding="utf-8") as f:
+            seed=json.load(f)
+
+        target=next((s for s in seed.get("students",[]) if s["name"].upper()=="DIVYAANSH VASHISTHA"),None)
+        demo=c.execute("select * from students where enrollment_no='DEMO001'").fetchone()
+        target_row=c.execute("select * from students where enrollment_no=?",(target["admission_no"],)).fetchone() if target else None
+        if demo and target and not target_row:
+            c.execute("update students set enrollment_no=?,roll_no=?,name=?,course=?,semester=?,section=? where id=?",(target["admission_no"],target["roll_no"],target["name"],seed["course"],seed["semester"],"C",demo["id"]))
+            c.execute("update users set username=?,password=?,display_name=?,student_id=? where student_id=?",(target["admission_no"],target["roll_no"],target["name"],demo["id"],demo["id"]))
+
+        for s in seed.get("students",[]):
+            row=c.execute("select id from students where enrollment_no=?",(s["admission_no"],)).fetchone()
+            if row:
+                sid=row["id"]
+                c.execute("update students set roll_no=?,name=?,course=?,semester=?,section=? where id=?",(s["roll_no"],s["name"],seed["course"],seed["semester"],"C",sid))
+            else:
+                c.execute("insert into students(enrollment_no,roll_no,name,course,semester,section) values(?,?,?,?,?,?)",(s["admission_no"],s["roll_no"],s["name"],seed["course"],seed["semester"],"C"))
+                sid=c.execute("select last_insert_rowid()").fetchone()[0]
+            user=c.execute("select id from users where student_id=?",(sid,)).fetchone()
+            if user:
+                c.execute("update users set username=?,password=?,role='STUDENT',display_name=? where id=?",(s["admission_no"],s["roll_no"],s["name"],user["id"]))
+            else:
+                c.execute("insert or ignore into users(username,password,role,display_name,student_id) values(?,?,?,?,?)",(s["admission_no"],s["roll_no"],"STUDENT",s["name"],sid))
+
+        teacher_ids={}
+        for t in seed.get("teachers",[]):
+            row=c.execute("select id from teachers where employee_code=?",(t["employee_code"],)).fetchone()
+            if row:
+                tid=row["id"]
+                c.execute("update teachers set name=? where id=?",(t["name"],tid))
+            else:
+                c.execute("insert into teachers(employee_code,name) values(?,?)",(t["employee_code"],t["name"]))
+                tid=c.execute("select last_insert_rowid()").fetchone()[0]
+            teacher_ids[t["employee_code"]]=tid
+            existing=c.execute("select id from users where teacher_id=?",(tid,)).fetchone()
+            if existing:
+                c.execute("update users set username=?,password=?,role='TEACHER',display_name=? where id=?",(t["employee_code"],t["employee_code"]+"@2026",t["name"],existing["id"]))
+            else:
+                c.execute("insert or ignore into users(username,password,role,display_name,teacher_id) values(?,?,?,?,?)",(t["employee_code"],t["employee_code"]+"@2026","TEACHER",t["name"],tid))
+
+        legacy={"DSA":"BECS301A","AIML":"BEAI302","IOT":"BEAI301","MATH":"BEMT301"}
+        for old,new in legacy.items():
+            if c.execute("select id from subjects where code=?",(old,)).fetchone() and not c.execute("select id from subjects where code=?",(new,)).fetchone():
+                c.execute("update subjects set code=? where code=?",(new,old))
+        for s in seed.get("subjects",[]):
+            tid=teacher_ids.get(s.get("teacher_code"))
+            row=c.execute("select id from subjects where code=?",(s["code"],)).fetchone()
+            if row:
+                c.execute("update subjects set name=?,semester=?,section=? where id=?",(s["name"],seed["semester"],"C",row["id"]))
+            else:
+                c.execute("insert into subjects(code,name,semester,section) values(?,?,?,?)",(s["code"],s["name"],seed["semester"],"C"))
+            if tid:
+                c.execute("update lectures set teacher_id=? where subject_id=(select id from subjects where code=?) and teacher_id is null",(tid,s["code"]))
+
+        if c.execute("select count(*) from cameras").fetchone()[0]==0:
+            c.execute("insert into cameras(camera_name,location,stream_url) values(?,?,?)",("Room 222 Classroom Camera",seed["room"],""))
+    else:
+        if c.execute("select count(*) from users").fetchone()[0]==0:
+            c.execute("insert into teachers(employee_code,name) values('T001','Demo Teacher')")
+            tid=c.execute("select last_insert_rowid()").fetchone()[0]
+            c.execute("insert into students(enrollment_no,roll_no,name,course,semester,section) values('DEMO001','DEMO001','Demo Student','B.Tech',3,'C')")
+            sid=c.execute("select last_insert_rowid()").fetchone()[0]
+            c.execute("insert into users(username,password,role,display_name,teacher_id) values('teacher','teacher123','TEACHER','Demo Teacher',?)",(tid,))
+            c.execute("insert into users(username,password,role,display_name,student_id) values('student','student123','STUDENT','Demo Student',?)",(sid,))
+    if not c.execute("select id from users where role='ADMIN'").fetchone():
         c.execute("insert into users(username,password,role,display_name) values('admin','admin123','ADMIN','University Administrator')")
-        for code,name in [('DSA','Data Structures & Algorithms'),('AIML','Introduction to AI & ML'),('IOT','Introduction to IOT'),('MATH','Engineering Maths III')]:
-            c.execute("insert into subjects(code,name,semester,section) values(?,?,3,'G')",(code,name))
-        c.execute("insert into cameras(camera_name,location,stream_url) values('Demo Classroom Camera','Room 222','')")
     c.commit(); c.close()
 
 def me():
@@ -159,11 +219,15 @@ def dashboard():
         st=c.execute("select * from students where id=?",(u["student_id"],)).fetchone()
         rows=c.execute("""select s.name,s.code,count(l.id) total,
         (select count(*) from attendance a where a.student_id=? and a.subject_id=s.id) present
-        from subjects s left join lectures l on l.subject_id=s.id and l.course=? and l.section=? group by s.id""",(st["id"],st["course"],st["section"])).fetchall()
-        total=sum(r["total"] for r in rows); present=sum(r["present"] for r in rows); overall=(present/total*100 if total else 0)
-        cards="".join(f'<div class="card stat"><span>{r["code"]}</span><b>{(r["present"]/r["total"]*100 if r["total"] else 0):.0f}%</b><small>{r["name"]}</small></div>' for r in rows)
+        from subjects s left join lectures l on l.subject_id=s.id and l.course=? and l.section=?
+        where s.semester=? and s.section=? group by s.id order by s.code""",
+        (st["id"],st["course"],st["section"],st["semester"],st["section"])).fetchall()
+        total=sum(r["total"] for r in rows); present=sum(min(r["present"],r["total"]) for r in rows); absent=max(total-present,0); overall=(present/total*100 if total else 0)
+        def att_class(p):
+            return "black" if p<=25 else "red" if p<50 else "orange" if p<75 else "greenText"
+        cards="".join(f'<div class="card stat"><span>{r["code"]}</span><b class="{att_class((r["present"]/r["total"]*100 if r["total"] else 0))}">{(r["present"]/r["total"]*100 if r["total"] else 0):.0f}%</b><small>{r["name"]}</small><small class="muted">{r["present"]} Present · {r["total"]} Lectures</small></div>' for r in rows)
         c.close()
-        body=f'<div class="hero"><div><span class="pill">STUDENT PORTAL</span><h2>{st["name"]}</h2><p class="muted">{st["enrollment_no"]} · {st["course"]} · Semester {st["semester"]} · Section {st["section"]}</p></div><div class="ring">{overall:.0f}%<div class="small muted">overall</div></div></div><div class="grid">{cards}</div><a class="btn primary" href="/student/attendance">View attendance history →</a>'
+        body=f'<div class="hero"><div><span class="pill">STUDENT PORTAL</span><h2>{st["name"]}</h2><p class="muted">Admission: {st["enrollment_no"]} · Roll No: {st["roll_no"] or "—"} · {st["course"]} · Semester {st["semester"]} · Section {st["section"]}</p></div><div class="ring {att_class(overall)}">{overall:.0f}%<div class="small muted">overall attendance</div></div></div><div class="grid">{cards}</div><div class="card"><div class="head"><h3>Attendance Summary</h3></div><div style="padding:20px;display:flex;gap:35px;flex-wrap:wrap"><div><span class="muted">Present</span><b style="display:block;font-size:25px">{present}</b></div><div><span class="muted">Absent</span><b style="display:block;font-size:25px">{absent}</b></div><div><span class="muted">Total Lectures</span><b style="display:block;font-size:25px">{total}</b></div></div></div><a class="btn primary" href="/student/attendance">View attendance history →</a>'
         return page("My Attendance",body)
     if u["role"]=="TEACHER":
         t=c.execute("select * from teachers where id=?",(u["teacher_id"],)).fetchone()
@@ -203,8 +267,8 @@ def student_history():
 @need("ADMIN")
 def students():
     c=db(); rows=c.execute("select * from students order by name").fetchall(); c.close()
-    trs="".join(f'<tr><td><b>{s["name"]}</b></td><td>{s["enrollment_no"]}</td><td>{s["course"]}</td><td>{s["semester"]}</td><td>{s["section"]}</td></tr>' for s in rows)
-    return page("Student Directory",f'<div class="hero"><div><span class="pill">UNIVERSITY DIRECTORY</span><h2>{len(rows)} active students</h2></div></div><div class="card"><div class="table"><table><tr><th>Name</th><th>Enrollment</th><th>Course</th><th>Semester</th><th>Section</th></tr>{trs}</table></div></div>')
+    trs="".join(f'<tr><td><b>{s["name"]}</b></td><td>{s["enrollment_no"]}</td><td>{s["roll_no"] or "—"}</td><td>{s["course"]}</td><td>{s["semester"]}</td><td>{s["section"]}</td></tr>' for s in rows)
+    return page("Student Directory",f'<div class="hero"><div><span class="pill">UNIVERSITY DIRECTORY</span><h2>{len(rows)} active students</h2></div></div><div class="card"><div class="table"><table><tr><th>Name</th><th>Admission No.</th><th>Roll No.</th><th>Course</th><th>Semester</th><th>Section</th></tr>{trs}</table></div></div>')
 
 @app.route("/cameras",methods=["GET","POST"])
 @need("ADMIN")
