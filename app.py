@@ -100,12 +100,12 @@ def register():
         username=request.form.get("username","").strip()
         password=request.form.get("password","")
         confirm=request.form.get("confirm_password","")
-        course=request.form.get("course","BCA").strip() or "BCA"
+        course=request.form.get("course","B.Tech").strip() or "B.Tech"
         try:
             semester=int(request.form.get("semester","3"))
         except ValueError:
             semester=3
-        section=request.form.get("section","G").strip() or "G"
+        section=request.form.get("section","C").strip() or "C"
 
         if not all([name,enrollment,username,password,confirm]):
             error="Please fill in all required fields."
@@ -141,9 +141,9 @@ def register():
     <input name="username" placeholder="Create Username" required>
     <input name="password" type="password" placeholder="Create Password" required>
     <input name="confirm_password" type="password" placeholder="Confirm Password" required>
-    <input name="course" value="BCA" placeholder="Course" required>
+    <input name="course" value="B.Tech" placeholder="Course" required>
     <input name="semester" type="number" min="1" max="10" value="3" placeholder="Semester" required>
-    <input name="section" value="G" placeholder="Section" required>
+    <input name="section" value="C" placeholder="Section" required>
     <button>Register Student</button>
     <p class="small muted" style="text-align:center;margin-top:16px">Already registered? <a href="/login" style="color:#8d9aff;font-weight:800">Back to Login</a></p>
     </form></body></html>""", error=error)
