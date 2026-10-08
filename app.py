@@ -48,8 +48,11 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}.side{
 """
 
 def db():
-    c=sqlite3.connect(DB)
+    c=sqlite3.connect(DB, timeout=15)
     c.row_factory=sqlite3.Row
+    c.execute("PRAGMA busy_timeout=15000")
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA synchronous=NORMAL")
     return c
 
 def init():
