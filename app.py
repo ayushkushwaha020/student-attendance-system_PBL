@@ -358,9 +358,9 @@ def dashboard():
         return page("My Attendance",body)
     if u["role"]=="TEACHER":
         t=c.execute("select * from teachers where id=?",(u["teacher_id"],)).fetchone()
-        ls=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.id desc limit 30",(u["teacher_id"],)).fetchall(); c.close()
-        rows="".join(f'<tr><td>{l["lecture_date"]}</td><td>{l["lecture_no"]}</td><td><b>{l["subject_name"]}</b><small>{l["code"]}</small></td><td>{l["room"]}</td><td>{l["section"]}</td></tr>' for l in ls) or '<tr><td colspan="5">No assigned lectures.</td></tr>'
-        return page("Teacher Dashboard",f'<div class="hero"><div><span class="pill">TEACHER WORKSPACE</span><h2>Hello, {t["name"]}</h2><p class="muted">Mark attendance only for lectures assigned to your account.</p></div><a class="btn primary" href="/attendance">Open register →</a></div><div class="card"><div class="head"><h3>Assigned lectures</h3></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Room</th><th>Section</th></tr>{rows}</table></div></div>')
+        ls=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall(); c.close()
+        rows="".join(f'<tr onclick="location.href=\'/attendance?lecture_id={l["id"]}\'" style="cursor:pointer"><td>{l["lecture_date"]}</td><td>Slot {l["lecture_no"]}</td><td><b>{l["subject_name"]}</b><small>{l["code"]}</small></td><td>{l["start_time"] or ""}–{l["end_time"] or ""}</td><td>{l["room"]}</td></tr>' for l in ls) or '<tr><td colspan="5">No assigned lectures.</td></tr>'
+        return page("Teacher Dashboard",f'<div class="hero"><div><span class="pill">TEACHER WORKSPACE</span><h2>Hello, {t["name"]}</h2><p class="muted">Click any lecture to open its attendance sheet.</p></div></div><div class="card"><div class="head"><h3>All Assigned Lectures</h3><span class="pill">{len(ls)} lectures</span></div><div class="table"><table><tr><th>Date</th><th>Slot</th><th>Subject</th><th>Time</th><th>Room</th></tr>{rows}</table></div></div>')
     stats=[("Students",c.execute("select count(*) from students").fetchone()[0]),("Teachers",c.execute("select count(*) from teachers").fetchone()[0]),("Cameras",c.execute("select count(*) from cameras").fetchone()[0]),("Attendance",c.execute("select count(*) from attendance").fetchone()[0])]; c.close()
     cards="".join(f'<div class="card stat"><span>{n}</span><b>{v}</b></div>' for n,v in stats)
     return page("Admin Dashboard",f'<div class="hero"><div><span class="pill">ADMIN CONTROL CENTER</span><h2>University Attendance</h2><p class="muted">Manage students, cameras, PDF data and attendance overrides.</p></div><a class="btn primary" href="/import">Import PDF →</a></div><div class="grid">{cards}</div>')
@@ -369,47 +369,44 @@ def dashboard():
 @need("ADMIN","TEACHER")
 def attendance():
     c=db(); u=me()
+    if u["role"]=="TEACHER":
+        lectures=c.execute("""select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id
+            where l.teacher_id=? and s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no""",(u["teacher_id"],)).fetchall()
+    else:
+        lectures=c.execute("""select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id
+            where s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no""").fetchall()
+    requested=int(request.args.get("lecture_id","0") or 0)
+    selected=next((l for l in lectures if l["id"]==requested), lectures[0] if lectures else None)
     if request.method=="POST":
-        lecture_id=int(request.form["lecture_id"]); selected={int(x) for x in request.form.getlist("student_id")}
-        lec=c.execute("select * from lectures where id=?",(lecture_id,)).fetchone()
-        if not lec:
-            c.close(); flash("Lecture not found.","danger"); return redirect(url_for("attendance"))
-        if u["role"]=="TEACHER" and lec["teacher_id"]!=u["teacher_id"]:
-            c.close(); flash("This lecture is not assigned to you.","danger"); return redirect(url_for("attendance"))
-        applicable=c.execute("""select * from students where course=? and section=?
-            and (group_name is null or group_name='' or group_name=?) order by name""",
-            (lec["course"],lec["section"],lec["group_name"] or "")).fetchall()
-        source="TEACHER_OVERRIDE" if u["role"]=="TEACHER" else "ADMIN_OVERRIDE"
-        absent_source="TEACHER_ABSENT" if u["role"]=="TEACHER" else "ADMIN_ABSENT"
-        for st in applicable:
-            if st["id"] in selected:
-                c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
-                    values(?,?,?,?,?,?)
-                    on conflict(student_id,lecture_id,attendance_date) do update set subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by""",
-                    (st["id"],lec["subject_id"],lecture_id,lec["lecture_date"],source,u["id"]))
-            else:
-                c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
-                    values(?,?,?,?,?,?)
-                    on conflict(student_id,lecture_id,attendance_date) do update set subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by
-                    """,
-                    (st["id"],lec["subject_id"],lecture_id,lec["lecture_date"],absent_source,None))
-        c.commit(); flash("Attendance saved. Unchecked students are recorded as absent.","success")
-    if u["role"]=="TEACHER": lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? and s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
-    else: lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where s.code not in ('SELF','MENTOR') order by l.lecture_date desc,l.lecture_no").fetchall()
-    students=c.execute("select * from students where 1=1 order by name").fetchall()
-    requested_lecture=int(request.args.get("lecture_id","0") or 0)
-    selected_lecture=next((l for l in lectures if l["id"]==requested_lecture), lectures[0] if lectures else None)
-    if selected_lecture:
-        students=c.execute("""select * from students where course=? and section=?
-            and (group_name is null or group_name='' or group_name=?) order by name""",
-            (selected_lecture["course"],selected_lecture["section"],selected_lecture["group_name"] or "")).fetchall()
-    present_ids=set()
-    if selected_lecture:
-        present_ids={r["student_id"] for r in c.execute("select student_id from attendance where lecture_id=? and source in ('TEACHER_OVERRIDE','ADMIN_OVERRIDE','AI_RECOGNITION')",(selected_lecture["id"],)).fetchall()}
+        lecture_id=int(request.form["lecture_id"]); selected=next((l for l in lectures if l["id"]==lecture_id),None)
+        if not selected or (u["role"]=="TEACHER" and selected["teacher_id"]!=u["teacher_id"]):
+            c.close(); flash("Lecture not found or not assigned to you.","danger"); return redirect(url_for("attendance"))
+        students=c.execute("""select * from students where course=? and section=? and (group_name is null or group_name='' or group_name=?) order by name""",(selected["course"],selected["section"],selected["group_name"] or "")).fetchall()
+        ps="TEACHER_OVERRIDE" if u["role"]=="TEACHER" else "ADMIN_OVERRIDE"; aas="TEACHER_ABSENT" if u["role"]=="TEACHER" else "ADMIN_ABSENT"
+        for st in students:
+            src=ps if request.form.get(f"status_{st['id']}","A")=="P" else aas
+            marked=u["id"] if src==ps else None
+            c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by) values(?,?,?,?,?,?)
+                on conflict(student_id,lecture_id,attendance_date) do update set subject_id=excluded.subject_id,source=excluded.source,marked_by=excluded.marked_by""",
+                (st["id"],selected["subject_id"],lecture_id,selected["lecture_date"],src,marked))
+        c.commit(); c.close(); flash("Attendance saved successfully.","success")
+        return redirect(url_for("attendance",lecture_id=lecture_id))
+    if selected:
+        students=c.execute("""select * from students where course=? and section=? and (group_name is null or group_name='' or group_name=?) order by name""",(selected["course"],selected["section"],selected["group_name"] or "")).fetchall()
+        present={x["student_id"] for x in c.execute("select student_id from attendance where lecture_id=? and source in ('TEACHER_OVERRIDE','ADMIN_OVERRIDE','AI_RECOGNITION')",(selected["id"],)).fetchall()}
+    else: students=[]; present=set()
     c.close()
-    opts="".join(f'<option value="{l["id"]}">{l["lecture_date"]} · Slot {l["lecture_no"]} · {l["subject_name"]} · {l["start_time"] or ""}-{l["end_time"] or ""} · Room {l["room"]}</option>' for l in lectures)
-    checks="".join(f'<label style="display:block;padding:7px"><input type="checkbox" name="student_id" value="{st["id"]}" {"checked" if st["id"] in present_ids else ""}> {st["name"]} <span class="muted">({st["enrollment_no"]})</span></label>' for st in students)
-    return page("Attendance Register",f"""<div class="card"><div class="head"><h3>Select lecture</h3><span class="pill">{len(students)} students</span></div><form class="form" method="post"><label class="wide">Lecture<select name="lecture_id" onchange="if(this.value) location.href='/attendance?lecture_id='+this.value" required>{opts}</select></label><div class="wide">{checks}</div><div><button class="btn green">Save Attendance</button></div></form></div>""")
+    lecture_cards="".join(f'<a class="lec-link {"active" if selected and l["id"]==selected["id"] else ""}" href="/attendance?lecture_id={l["id"]}"><b>{l["lecture_date"]} · Slot {l["lecture_no"]}</b><small>{l["subject_name"]} · {l["code"]}<br>{l["start_time"] or ""}–{l["end_time"] or ""} · Room {l["room"]}</small></a>' for l in lectures)
+    rows=""
+    for i,st in enumerate(students):
+        p=st["id"] in present
+        rows+=f'<div class="student-row {"is-present" if p else ""}" id="student-row-{i}" onclick="selectStudent({i})"><span class="student-no">{i+1}</span><div class="student-info"><b>{st["name"]}</b><small>{st["enrollment_no"]}</small></div><button type="button" class="status-toggle {"on" if p else ""}" id="toggle-{i}" onclick="event.stopPropagation();toggleStudent({i})"><span></span></button><input type="hidden" name="status_{st["id"]}" id="status-{i}" value="{"P" if p else "A"}"><span class="status-text" id="status-text-{i}">{"PRESENT" if p else "ABSENT"}</span></div>'
+    body=f"""<style>
+.att-layout{{display:grid;grid-template-columns:300px 1fr;gap:18px;align-items:start}}.lecture-list{{max-height:70vh;overflow:auto}}.lec-link{{display:block;padding:12px 14px;margin:6px 0;border:1px solid #24354f;border-radius:12px;text-decoration:none;color:#fff;background:#0c1728}}.lec-link.active,.lec-link:hover{{border-color:#557dbb;background:#142747}}.lec-link small{{display:block;color:#8293ac;margin-top:5px;line-height:1.6}}.student-row{{display:flex;align-items:center;gap:14px;padding:13px 15px;margin:7px 0;border:1px solid #24354f;border-radius:13px;background:#0b1627;cursor:pointer}}.student-row.active{{border-color:#557dbb;background:#11213a}}.student-row.is-present{{border-color:#285b4b}}.student-no{{width:28px;color:#7f91ab;font-weight:800}}.student-info{{flex:1}}.student-info b,.student-info small{{display:block}}.student-info small{{color:#71829c;margin-top:3px}}.status-toggle{{width:54px;height:29px;border:0;border-radius:20px;background:#303e52;padding:3px;cursor:pointer}}.status-toggle span{{display:block;width:23px;height:23px;border-radius:50%;background:#aab6c7;transition:.18s}}.status-toggle.on{{background:#19a56f}}.status-toggle.on span{{transform:translateX(25px);background:#fff}}.status-text{{width:72px;font-size:10px;font-weight:900;color:#8c9bb0}}.is-present .status-text{{color:#35d89a}}.key-btn{{min-width:48px;padding:9px 15px;border-radius:10px;font-weight:900}}@media(max-width:900px){{.att-layout{{grid-template-columns:1fr}}.lecture-list{{max-height:280px}}}}
+</style><div class="att-layout"><div class="card"><div class="head"><h3>All Lectures</h3><span class="pill">{len(lectures)}</span></div><div class="lecture-list">{lecture_cards or '<p class="muted">No lectures assigned.</p>'}</div></div><div class="card"><div class="head"><div><span class="pill">ATTENDANCE SHEET</span><h2 style="margin:8px 0 3px">{selected["subject_name"] if selected else "No Lecture Selected"}</h2><p class="muted">{selected["lecture_date"] if selected else ""} · Slot {selected["lecture_no"] if selected else ""} · {selected["start_time"] if selected else ""}–{selected["end_time"] if selected else ""} · Room {selected["room"] if selected else ""}</p></div><span class="pill">{len(students)} students</span></div>{f'''<form method="post" id="attendance-form"><input type="hidden" name="lecture_id" value="{selected["id"]}"><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 15px"><span class="muted small">Click a student, then press <b>P</b> or <b>A</b>. It automatically moves to the next student.</span><div><button type="button" class="btn key-btn" onclick="markCurrent('P')">P</button> <button type="button" class="btn key-btn" onclick="markCurrent('A')">A</button></div></div>{rows}<div style="margin-top:16px;text-align:right"><button class="btn green" type="submit">Save Attendance</button></div></form><script>
+let current=0,total={len(students)};function selectStudent(i){{if(i<0||i>=total)return;current=i;document.querySelectorAll(".student-row").forEach(x=>x.classList.remove("active"));let r=document.getElementById("student-row-"+i);if(r){{r.classList.add("active");r.scrollIntoView({{block:"nearest",behavior:"smooth"}})}}}}function setStudent(i,v,next){{document.getElementById("status-"+i).value=v;let t=document.getElementById("toggle-"+i),r=document.getElementById("student-row-"+i),s=document.getElementById("status-text-"+i);t.classList.toggle("on",v==="P");r.classList.toggle("is-present",v==="P");s.textContent=v==="P"?"PRESENT":"ABSENT";selectStudent(i);if(next&&i+1<total)setTimeout(()=>selectStudent(i+1),120)}}function toggleStudent(i){{setStudent(i,document.getElementById("status-"+i).value==="P"?"A":"P",true)}}function markCurrent(v){{setStudent(current,v,true)}}document.addEventListener("keydown",e=>{{if(e.target.matches("input,textarea"))return;if(e.key.toLowerCase()==="p"||e.key.toLowerCase()==="a"){{e.preventDefault();markCurrent(e.key.toUpperCase())}}if(e.key==="ArrowDown")selectStudent(Math.min(current+1,total-1));if(e.key==="ArrowUp")selectStudent(Math.max(current-1,0))}});if(total)selectStudent(0);
+</script>''' if selected else '<p class="muted">Select a lecture from the left.</p>'}</div></div>"""
+    return page("Attendance Sheet",body)
 
 @app.route("/student/timetable")
 @need("STUDENT")
