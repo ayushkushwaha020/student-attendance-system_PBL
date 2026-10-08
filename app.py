@@ -1507,6 +1507,82 @@ def upgrade_schema():
     """)
     c.commit(); c.close()
 
+def backfill_audit_history():
+    """Recover important activity that happened before audit logging was enabled.
+    Historical rows are explicitly labelled so they are not confused with live audit events.
+    """
+    c=None
+    try:
+        c=db()
+        c.execute("create table if not exists audit_meta(key text primary key,value text)")
+        if c.execute("select 1 from audit_meta where key='history_backfilled'").fetchone():
+            c.close()
+            return
+        now=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+        admin=c.execute("select id,display_name from users where role='ADMIN' order by id limit 1").fetchone()
+        admin_id=admin["id"] if admin else None
+
+        # Existing cameras.
+        for cam in c.execute("select id,camera_name,location from cameras order by id").fetchall():
+            c.execute("insert into audit_logs(user_id,action,entity,entity_id,detail,created_at) values(?,?,?,?,?,?)",
+                      (admin_id,"HISTORICAL_CAMERA","camera",cam["id"],
+                       "Recovered existing camera: "+str(cam["camera_name"])+" at "+str(cam["location"]),"Historical recovery"))
+
+        # Existing timetable/roster imports.
+        for doc in c.execute("select kind,source_name,updated_at from document_configs order by updated_at").fetchall():
+            c.execute("insert into audit_logs(user_id,action,entity,entity_id,detail,created_at) values(?,?,?,?,?,?)",
+                      (admin_id,"HISTORICAL_IMPORT","document",None,
+                       "Recovered "+str(doc["kind"])+" import: "+str(doc["source_name"] or "stored configuration"),
+                       str(doc["updated_at"] or now)))
+
+        # Existing lectures are the strongest historical record of teacher activity.
+        lectures=c.execute("""select l.id,l.lecture_date,l.subject_id,l.teacher_id,s.code,s.name subject_name,
+                                    u.id user_id,u.display_name
+                             from lectures l
+                             left join subjects s on s.id=l.subject_id
+                             left join users u on u.teacher_id=l.teacher_id and u.role='TEACHER'
+                             order by l.lecture_date,l.id""").fetchall()
+        for lec in lectures:
+            actor=lec["user_id"] or admin_id
+            ts=str(lec["lecture_date"] or now)+" 00:00:00"
+            c.execute("insert into audit_logs(user_id,action,entity,entity_id,detail,created_at) values(?,?,?,?,?,?)",
+                      (actor,"HISTORICAL_LECTURE","lecture",lec["id"],
+                       "Recovered lecture: "+str(lec["subject_name"] or lec["code"] or "Unknown subject"),ts))
+
+        # Existing teacher-marked attendance.
+        rows=c.execute("""select a.id,a.lecture_id,a.student_id,a.attendance_date,a.source,
+                                 u.id user_id,u.display_name
+                          from attendance a
+                          left join users u on u.id=a.marked_by
+                          where a.marked_by is not null
+                          order by a.attendance_date,a.id""").fetchall()
+        for a in rows:
+            if not a["user_id"]:
+                continue
+            c.execute("insert into audit_logs(user_id,action,entity,entity_id,detail,created_at) values(?,?,?,?,?,?)",
+                      (a["user_id"],"HISTORICAL_ATTENDANCE","attendance",a["id"],
+                       "Recovered attendance record for student ID "+str(a["student_id"])+" ("+str(a["source"] or "unknown")+")",
+                       str(a["attendance_date"] or now)+" 00:00:00"))
+
+        # Existing student face enrollments are student activity with a real captured_at.
+        faces=c.execute("""select f.id,f.student_id,f.captured_at,u.id user_id
+                           from student_face_profiles f
+                           left join users u on u.student_id=f.student_id and u.role='STUDENT'
+                           order by f.captured_at,f.id""").fetchall()
+        for f in faces:
+            c.execute("insert into audit_logs(user_id,action,entity,entity_id,detail,created_at) values(?,?,?,?,?,?)",
+                      (f["user_id"] or admin_id,"HISTORICAL_FACE_ENROLLMENT","student_face_profile",f["id"],
+                       "Recovered previous student face enrollment","".join([str(f["captured_at"] or now)])))
+
+        c.execute("insert into audit_meta(key,value) values('history_backfilled',?)",(now,))
+        c.commit()
+        c.close()
+    except Exception:
+        try:
+            if c: c.close()
+        except Exception: pass
+        app.logger.exception("Audit history backfill failed")
+
 def audit(action,entity="",entity_id=None,detail=""):
     c=None
     try:
@@ -1657,9 +1733,9 @@ def audit_logs():
                      order by a.id desc limit 500""").fetchall()
     c.close()
 
-    student_logs=[x for x in logs if x["role"]=="STUDENT"]
-    teacher_logs=[x for x in logs if x["role"]=="TEACHER"]
     admin_logs=[x for x in logs if x["role"]=="ADMIN" or x["role"] is None]
+    teacher_logs=[x for x in logs if x["role"]=="TEACHER"]
+    student_logs=[x for x in logs if x["role"]=="STUDENT"]
 
     def log_rows(items):
         rows="".join(
@@ -1673,13 +1749,13 @@ def audit_logs():
         return f'''<div class="card audit-section {cls}">
           <div class="head"><div><span class="pill">{title.upper()}</span><h3 style="margin:7px 0 3px">{title} Logs</h3>
           <p class="muted small">{subtitle}</p></div><span class="pill">{len(items)} events</span></div>
-          <div class="table audit-table"><table><tr><th>Time (IST)</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>{log_rows(items)}</table></div>
+          <div class="table audit-table"><table><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr>{log_rows(items)}</table></div>
         </div>'''
 
     body=f'''<div class="hero">
       <div><span class="pill">SYSTEM ACTIVITY</span><h2>Audit Logs</h2>
-      <p class="muted">Activity is separated by account role for easier monitoring.</p></div>
-      <div class="overall-box"><div class="value">{len(logs)}</div><div class="label">TOTAL RECENT EVENTS</div></div>
+      <p class="muted">Admin logs first, followed by teacher and student activity. Historical records recovered from existing system data are marked as HISTORICAL.</p></div>
+      <div class="overall-box"><div class="value">{len(logs)}</div><div class="label">TOTAL EVENTS</div></div>
     </div>
     <style>
       .audit-sections{{display:grid;grid-template-columns:1fr;gap:18px}}
@@ -1687,15 +1763,15 @@ def audit_logs():
       .audit-section .head{{padding:18px 20px 12px}}
       .audit-table{{max-height:430px;overflow:auto}}
       .audit-table table{{min-width:760px}}
-      .audit-section.student{{border-color:#294b70}}
-      .audit-section.teacher{{border-color:#3d4b70}}
       .audit-section.admin{{border-color:#59476e}}
+      .audit-section.teacher{{border-color:#3d4b70}}
+      .audit-section.student{{border-color:#294b70}}
       @media(max-width:800px){{.audit-table{{max-height:360px}}}}
     </style>
     <div class="audit-sections">
-      {section("Students","Login, logout and student account activity.",student_logs,"student")}
-      {section("Teachers","Teacher login, attendance and lecture-management activity.",teacher_logs,"teacher")}
       {section("Admin","Administrative, security, camera, import and system activity.",admin_logs,"admin")}
+      {section("Teachers","Teacher login, attendance and lecture-management activity.",teacher_logs,"teacher")}
+      {section("Students","Student login, logout, face enrollment and student activity.",student_logs,"student")}
     </div>'''
     return page("Audit Logs",body)
 
@@ -1955,6 +2031,7 @@ def ensure_timetable_and_absences():
 
 init()
 upgrade_schema()
+backfill_audit_history()
 sync_admin_accounts()
 repair_timetable_records()
 ensure_timetable_and_absences()
