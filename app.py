@@ -119,9 +119,15 @@ def init():
             teacher_ids[t["employee_code"]]=tid
             existing=c.execute("select id from users where teacher_id=?",(tid,)).fetchone()
             if existing:
-                c.execute("update users set username=?,password=?,role='TEACHER',display_name=? where id=?",(t["employee_code"],t["employee_code"]+"@2026",t["name"],existing["id"]))
+                teacher_subject_codes=[x["code"] for x in seed.get("subjects",[]) if x.get("teacher_code")==t["employee_code"]]
+                teacher_password=teacher_subject_codes[0] if teacher_subject_codes else t["employee_code"]
+                teacher_username=t["name"].upper()
+                c.execute("update users set username=?,password=?,role='TEACHER',display_name=? where id=?",(teacher_username,teacher_password,t["name"],existing["id"]))
             else:
-                c.execute("insert or ignore into users(username,password,role,display_name,teacher_id) values(?,?,?,?,?)",(t["employee_code"],t["employee_code"]+"@2026","TEACHER",t["name"],tid))
+                teacher_subject_codes=[x["code"] for x in seed.get("subjects",[]) if x.get("teacher_code")==t["employee_code"]]
+                teacher_password=teacher_subject_codes[0] if teacher_subject_codes else t["employee_code"]
+                teacher_username=t["name"].upper()
+                c.execute("insert or ignore into users(username,password,role,display_name,teacher_id) values(?,?,?,?,?)",(teacher_username,teacher_password,"TEACHER",t["name"],tid))
 
         legacy={"DSA":"BECS301A","AIML":"BEAI302A","IOT":"BEAI301","MATH":"BEMT301"}
         for old,new in legacy.items():
@@ -200,7 +206,17 @@ def home(): return redirect(url_for("dashboard") if me() else url_for("login"))
 @app.route("/login",methods=["GET","POST"])
 def login():
     if request.method=="POST":
-        c=db(); u=c.execute("select * from users where username=? and password=?",(request.form["username"].strip(),request.form["password"])).fetchone(); c.close()
+        c=db(); username=request.form["username"].strip()
+        password=request.form["password"]
+        u=c.execute("select * from users where username=? and password=?",(username,password)).fetchone()
+        if not u:
+            # Teacher login: username is the teacher's full name in ALL CAPS.
+            # Accept any subject code assigned to that teacher as the password.
+            u=c.execute("""select u.* from users u join teachers t on t.id=u.teacher_id
+                           join subjects s on s.teacher_id=t.id
+                           where u.role='TEACHER' and upper(t.name)=? and s.code=?""",
+                        (username.upper(),password.upper())).fetchone()
+        c.close()
         if u: session["uid"]=u["id"]; return redirect(url_for("dashboard"))
         flash("Invalid credentials.","danger")
     return render_template_string("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>""" + CSS + """</style></head><body class="login"><form class="loginbox card" method="post"><div class="brand"><div class="logo"><img src="/static/attendai-logo.svg" alt="Sharda University Agra"></div><div><b>Sharda University Agra</b><small>Student Attendance System</small></div></div><h2>Sign in</h2><p class="muted">Role is loaded automatically from your account.</p><input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required><button>Sign in</button><p class="small muted" style="text-align:center;margin-top:16px">New student? <a href="/register" style="color:#8d9aff;font-weight:800">Register here</a></p></form></body></html>""")
