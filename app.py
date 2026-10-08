@@ -398,8 +398,9 @@ def reports():
 def reports_csv():
     c=db(); out=io.StringIO(); w=csv.writer(out); w.writerow(["Student","Enrollment","Course","Section","Attendance Percent","Present","Total"])
     for s in c.execute("select * from students order by name").fetchall():
-        total=c.execute("select count(*) from lectures where course=? and section=?",(s["course"],s["section"])).fetchone()[0]
-        present=c.execute("select count(*) from attendance where student_id=?",(s["id"],)).fetchone()[0]
+        total=c.execute("select count(*) from lectures l join subjects s2 on s2.id=l.subject_id where l.course=? and l.section=? and l.status='PDF_SCHEDULED' and s2.code not in ('SELF','MENTOR') and (l.group_name is null or l.group_name='' or l.group_name=?)",(s["course"],s["section"],s["group_name"] or "")).fetchone()[0]
+        present=c.execute("""select count(*) from attendance a join lectures l on l.id=a.lecture_id join subjects s2 on s2.id=l.subject_id
+            where a.student_id=? and a.source in ('TEACHER_OVERRIDE','ADMIN_OVERRIDE','AI_RECOGNITION') and s2.code not in ('SELF','MENTOR')""",(s["id"],)).fetchone()[0]
         w.writerow([s["name"],s["enrollment_no"],s["course"],s["section"],f"{(present/total*100 if total else 0):.1f}",present,total])
     c.close(); data=io.BytesIO(out.getvalue().encode()); data.seek(0)
     return send_file(data,mimetype="text/csv",as_attachment=True,download_name="attendance_report.csv")
