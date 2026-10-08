@@ -89,7 +89,7 @@ def init():
             else:
                 c.execute("insert or ignore into users(username,password,role,display_name,teacher_id) values(?,?,?,?,?)",(t["employee_code"],t["employee_code"]+"@2026","TEACHER",t["name"],tid))
 
-        legacy={"DSA":"BECS301A","AIML":"BEAI302","IOT":"BEAI301","MATH":"BEMT301"}
+        legacy={"DSA":"BECS301A","AIML":"BEAI302A","IOT":"BEAI301","MATH":"BEMT301"}
         for old,new in legacy.items():
             if c.execute("select id from subjects where code=?",(old,)).fetchone() and not c.execute("select id from subjects where code=?",(new,)).fetchone():
                 c.execute("update subjects set code=? where code=?",(new,old))
