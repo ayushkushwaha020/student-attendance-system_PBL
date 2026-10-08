@@ -100,7 +100,7 @@
       "day": "Monday",
       "subject_code": "BECS306",
       "subject_name": "Discrete Structure",
-      "teacher_code": null,
+      "teacher_code": "T004",
       "group": null,
       "slots": [
         4
@@ -152,7 +152,7 @@
       "day": "Wednesday",
       "subject_code": "BECS306",
       "subject_name": "Discrete Structure",
-      "teacher_code": null,
+      "teacher_code": "T004",
       "group": null,
       "slots": [
         1,
