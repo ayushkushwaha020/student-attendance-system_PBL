@@ -758,6 +758,13 @@ def cameras():
       .live-actions{display:flex;gap:8px;align-items:center}
       .live-actions button{border:1px solid #304565;background:#10213a;color:#dce7f8;border-radius:10px;padding:9px 12px;font-weight:850;cursor:pointer}
       .live-actions button:hover{border-color:#657cff}
+      .camera-picker{display:none;padding:10px 14px;border-bottom:1px solid #223752;background:#0a1727}
+      .camera-picker.open{display:block}
+      .camera-picker-title{font-size:10px;font-weight:900;color:#8291aa;margin-bottom:8px}
+      .camera-picker-list{display:flex;gap:8px;flex-wrap:wrap}
+      .camera-picker-item{border:1px solid #304565;background:#10213a;color:#dce7f8;border-radius:9px;padding:7px 10px;font-size:10px;font-weight:850;cursor:pointer}
+      .camera-picker-item:hover{border-color:#657cff}
+      .camera-picker-item.active{border-color:#6e82ff;background:#172b4d;color:#9eb0ff}
       .feed-grid{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;overflow:auto;flex:1;align-content:start}
       .feed-tile{position:relative;min-height:235px;aspect-ratio:16/10;background:#02070d;border:1px solid #263c59;border-radius:14px;overflow:hidden}
       .feed-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#02070d}
@@ -778,9 +785,13 @@ def cameras():
       <div class="live-panel">
         <div class="live-head">
           <div><div class="live-title">Live Camera Feeds</div><div class="live-sub"><span id="feedCount">0</span> active camera(s) · <span id="aiStatus">Preparing AI face detection…</span></div></div>
-          <div class="live-actions"><button type="button" id="clearFeeds">Clear All</button><button type="button" id="closeFeeds">✕ Close</button></div>
+          <div class="live-actions"><button type="button" id="addCameraBtn">＋ Add Camera</button><button type="button" id="clearFeeds">Clear All</button><button type="button" id="closeFeeds">✕ Close</button></div>
         </div>
-        <div class="feed-grid" id="feedGrid"><div class="empty-feeds">Select a camera above to start its live feed.</div></div>
+        <div class="camera-picker" id="cameraPicker">
+          <div class="camera-picker-title">Add cameras to this live view</div>
+          <div class="camera-picker-list" id="cameraPickerList"></div>
+        </div>
+        <div class="feed-grid" id="feedGrid"><div class="empty-feeds">Add one or more cameras to start their live feeds.</div></div>
       </div>
     </div>
 
@@ -791,6 +802,9 @@ def cameras():
     const selectedCount=document.getElementById("selectedCount");
     const feedCount=document.getElementById("feedCount");
     const aiStatus=document.getElementById("aiStatus");
+    const addCameraBtn=document.getElementById("addCameraBtn");
+    const cameraPicker=document.getElementById("cameraPicker");
+    const cameraPickerList=document.getElementById("cameraPickerList");
     const active=new Map();
     let detector=null;
     let detectorPromise=null;
@@ -824,10 +838,23 @@ def cameras():
       return detectorPromise;
     }
 
+    function renderCameraPicker(){
+      cameraPickerList.innerHTML="";
+      CAMERA_CONFIG.forEach(camera=>{
+        const btn=document.createElement("button");
+        btn.type="button";
+        btn.className="camera-picker-item"+(active.has(camera.id)?" active":"");
+        btn.textContent=(active.has(camera.id)?"✓ ":"＋ ")+camera.name;
+        btn.onclick=()=>openCamera(camera.id);
+        cameraPickerList.appendChild(btn);
+      });
+    }
+
     function syncCounts(){
       selectedCount.textContent=active.size+" selected";
       feedCount.textContent=active.size;
       document.querySelectorAll(".camera-card").forEach(card=>card.classList.toggle("active",active.has(Number(card.dataset.cameraId))));
+      renderCameraPicker();
     }
 
     function fitRect(video,canvas){
@@ -959,9 +986,11 @@ def cameras():
       modal.classList.add("open");modal.setAttribute("aria-hidden","false");
       const empty=feedGrid.querySelector(".empty-feeds");if(empty)empty.remove();
       makeFeed(camera);
+      cameraPicker.classList.remove("open");
     }
 
     document.querySelectorAll(".camera-card").forEach(card=>card.addEventListener("click",()=>openCamera(Number(card.dataset.cameraId))));
+    addCameraBtn.onclick=()=>cameraPicker.classList.toggle("open");
     document.getElementById("clearFeeds").onclick=()=>Array.from(active.keys()).forEach(id=>removeFeed(id));
     document.getElementById("closeFeeds").onclick=()=>Array.from(active.keys()).forEach(id=>removeFeed(id));
     modal.addEventListener("click",e=>{if(e.target===modal)Array.from(active.keys()).forEach(id=>removeFeed(id));});
