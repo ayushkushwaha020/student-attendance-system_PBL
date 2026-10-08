@@ -259,7 +259,7 @@ def dashboard():
           and l.status='PDF_SCHEDULED'
           and s.code not in ('SELF','MENTOR')
           and (l.group_name is null or l.group_name='' or l.group_name=?)
-        where s.semester=? and s.section=? group by s.id order by s.code""",
+        where s.semester=? and s.section=? and s.code not in ('SELF','MENTOR') group by s.id order by s.code""",
         (st["id"],st["course"],st["section"],st["group_name"],st["semester"],st["section"])).fetchall()
         total=sum(r["total"] for r in rows); present=sum(min(r["present"],r["total"]) for r in rows); absent=max(total-present,0); overall=(present/total*100 if total else 0)
         def att_class(p):
