@@ -217,8 +217,11 @@ def init():
             sid=c.execute("select last_insert_rowid()").fetchone()[0]
             c.execute("insert into users(username,password,role,display_name,teacher_id) values('teacher','teacher123','TEACHER','Demo Teacher',?)",(tid,))
             c.execute("insert into users(username,password,role,display_name,student_id) values('student','student123','STUDENT','Demo Student',?)",(sid,))
-    if not c.execute("select id from users where role='ADMIN'").fetchone():
-        c.execute("insert into users(username,password,role,display_name) values('admin','admin123','ADMIN','University Administrator')")
+    admin_user=c.execute("select id from users where role='ADMIN' order by id limit 1").fetchone()
+    if not admin_user:
+        c.execute("insert into users(username,password,role,display_name) values('SHARDA.AGRA','admin123','ADMIN','Sharda University Agra Administrator')")
+    else:
+        c.execute("update users set username='SHARDA.AGRA', display_name='Sharda University Agra Administrator' where id=?",(admin_user["id"],))
     c.commit(); c.close()
 
 def me():
