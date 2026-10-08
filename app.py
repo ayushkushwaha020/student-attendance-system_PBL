@@ -241,7 +241,7 @@ def sync_admin_accounts():
         username=str(account.get("username","")).strip()
         password=str(account.get("password",""))
         if username and password:
-            c.execute("insert into users(username,password,role,display_name) values(?,?,?,?,?)",
+            c.execute("insert into users(username,password,role,display_name) values(?,?,?,?)",
                       (username,password,"ADMIN",username))
     c.commit()
     c.close()
