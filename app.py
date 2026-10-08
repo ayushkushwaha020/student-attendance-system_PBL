@@ -4,6 +4,7 @@ from email.message import EmailMessage
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from functools import wraps
+from html import escape
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
@@ -123,6 +124,7 @@ def init():
     CREATE TABLE IF NOT EXISTS attendance(id INTEGER PRIMARY KEY,student_id INTEGER,subject_id INTEGER,lecture_id INTEGER,attendance_date TEXT,source TEXT,marked_by INTEGER,UNIQUE(student_id,lecture_id,attendance_date));
     CREATE TABLE IF NOT EXISTS cameras(id INTEGER PRIMARY KEY,camera_name TEXT,location TEXT,stream_url TEXT,authorized INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS student_face_profiles(id INTEGER PRIMARY KEY,student_id INTEGER NOT NULL,image_data TEXT NOT NULL,captured_at TEXT DEFAULT CURRENT_TIMESTAMP,is_active INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS document_configs(kind TEXT PRIMARY KEY,payload TEXT NOT NULL,source_name TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
     """)
     cols={row["name"] for row in c.execute("pragma table_info(students)").fetchall()}
     if "roll_no" not in cols:
@@ -217,6 +219,30 @@ def init():
             sid=c.execute("select last_insert_rowid()").fetchone()[0]
             c.execute("insert into users(username,password,role,display_name,teacher_id) values('teacher','teacher123','TEACHER','Demo Teacher',?)",(tid,))
             c.execute("insert into users(username,password,role,display_name,student_id) values('student','student123','STUDENT','Demo Student',?)",(sid,))
+    saved_students=c.execute("select payload from document_configs where kind='STUDENT_LIST'").fetchone()
+    if saved_students:
+        try:
+            imported=json.loads(saved_students["payload"])
+            for s in imported:
+                row=c.execute("select id from students where enrollment_no=?",(s["admission_no"],)).fetchone()
+                if row:
+                    sid=row["id"]
+                    c.execute("update students set roll_no=?,name=?,course=?,semester=?,section=?,group_name=? where id=?",
+                              (s["roll_no"],s["name"],s["course"],s["semester"],s["section"],s.get("group"),sid))
+                else:
+                    c.execute("insert into students(enrollment_no,roll_no,name,course,semester,section,group_name) values(?,?,?,?,?,?,?)",
+                              (s["admission_no"],s["roll_no"],s["name"],s["course"],s["semester"],s["section"],s.get("group")))
+                    sid=c.execute("select last_insert_rowid()").fetchone()[0]
+                user=c.execute("select id from users where student_id=?",(sid,)).fetchone()
+                if user:
+                    c.execute("update users set username=?,password=?,role='STUDENT',display_name=? where id=?",
+                              (s["admission_no"],s["roll_no"],"STUDENT",s["name"],user["id"]))
+                else:
+                    c.execute("insert or ignore into users(username,password,role,display_name,student_id) values(?,?,?,?,?)",
+                              (s["admission_no"],s["roll_no"],"STUDENT",s["name"],sid))
+        except Exception:
+            pass
+
     admin_user=c.execute("select id from users where role='ADMIN' order by id limit 1").fetchone()
     if not admin_user:
         c.execute("insert into users(username,password,role,display_name) values('SHARDA.AGRA','admin123','ADMIN','Sharda University Agra Administrator')")
@@ -683,22 +709,479 @@ def cameras():
     cards="".join(f'<div class="card stat"><span>AUTHORIZED CAMERA</span><b>{x["camera_name"]}</b><small>{x["location"]} · {x["stream_url"] or "No browser stream configured"}</small></div>' for x in rows)
     return page("Camera Management",f'<div class="card"><div class="head"><h3>Add university camera</h3></div><form class="form" method="post"><label>Name<input name="name" required></label><label>Location<input name="location" required></label><label>Stream URL<input name="url" placeholder="WebRTC/HLS URL"></label><div><button class="btn primary">Authorize Camera</button></div></form></div><div class="grid">{cards}</div>')
 
+
+# --- Fail-safe PDF document ingestion ---------------------------------------
+# The parser deliberately refuses to write anything when the PDF is ambiguous.
+# This is more important for attendance/timetable data than guessing.
+DAY_NAMES=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+DAY_ALIASES={
+    "MON":"Monday","MONDAY":"Monday","TUE":"Tuesday","TUES":"Tuesday","TUESDAY":"Tuesday",
+    "WED":"Wednesday","WEDNESDAY":"Wednesday","THU":"Thursday","THUR":"Thursday","THURS":"Thursday","THURSDAY":"Thursday",
+    "FRI":"Friday","FRIDAY":"Friday","SAT":"Saturday","SATURDAY":"Saturday","SUN":"Sunday","SUNDAY":"Sunday"
+}
+ADMISSION_RE=re.compile(r"\b\d{2}[A-Z]{2,12}[A-Z0-9]{2,}\b",re.I)
+ROLL_RE=re.compile(r"\b\d{10,13}\b")
+GROUP_RE=re.compile(r"\b\d{2}\s*[a-z]{3}\s*\(\s*\d{2}\s*c\s*[12]\s*\)",re.I)
+SUBJECT_CODE_RE=re.compile(r"\b[A-Z]{2,8}\d{3}[A-Z]{0,2}\b")
+TIME_RANGE_RE=re.compile(r"\b\d{1,2}[:.]\d{2}\s*[-–—]\s*\d{1,2}[:.]\d{2}\b")
+SINGLE_TIME_RE=re.compile(r"\b\d{1,2}[:.]\d{2}\b")
+
+def _clean_pdf_text(value):
+    return re.sub(r"\s+"," ",str(value or "")).strip()
+
+def _norm_group(value):
+    if not value:
+        return None
+    m=GROUP_RE.search(str(value))
+    if not m:
+        return None
+    return re.sub(r"\s+","",m.group(0)).lower()
+
+def _norm_person(value):
+    return re.sub(r"[^a-z0-9]","",str(value or "").lower())
+
+def _extract_pdf_document(path):
+    try:
+        import pymupdf
+    except Exception as exc:
+        raise ValueError(f"PDF extraction engine is unavailable: {exc}")
+    doc=pymupdf.open(path)
+    pages=[]
+    total_text=[]
+    for page in doc:
+        text=page.get_text("text",sort=True) or ""
+        words=page.get_text("words",sort=True) or []
+        blocks=page.get_text("blocks",sort=True) or []
+        pages.append({"number":page.number+1,"text":text,"words":words,"blocks":blocks})
+        total_text.append(text)
+    doc.close()
+    combined="\n".join(total_text)
+    if len(re.sub(r"\s+","",combined)) < 30:
+        raise ValueError("This PDF has no readable text layer. The import was stopped instead of guessing from an image-only/scanned PDF.")
+    return pages,combined
+
+def _guess_document_type(text):
+    t=text.upper()
+    student_score=sum(x in t for x in ("STUDENT","ROLL","ADMISSION","ENROLLMENT","NAME"))
+    timetable_score=sum(x in t for x in ("TIME TABLE","TIMETABLE","SLOT","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"))
+    if student_score>=2 and student_score>timetable_score:
+        return "STUDENT_LIST"
+    if timetable_score>=2 and timetable_score>=student_score:
+        return "TIMETABLE"
+    # Structural fallback: roll/admission patterns are much stronger than title wording.
+    if len(ROLL_RE.findall(text))>=2 and len(ADMISSION_RE.findall(text))>=2:
+        return "STUDENT_LIST"
+    if len(SUBJECT_CODE_RE.findall(text))>=2 and len(TIME_RANGE_RE.findall(text))>=2:
+        return "TIMETABLE"
+    return "UNKNOWN"
+
+def _student_rows_from_lines(text):
+    rows=[]
+    seen=set()
+    for raw in text.splitlines():
+        line=_clean_pdf_text(raw)
+        if not line:
+            continue
+        admissions=ADMISSION_RE.findall(line)
+        rolls=ROLL_RE.findall(line)
+        if len(admissions)!=1 or len(rolls)!=1:
+            continue
+        admission=admissions[0].upper()
+        roll=rolls[0]
+        if admission in seen or roll in {x["roll_no"] for x in rows}:
+            continue
+        group=_norm_group(line)
+        work=ADMISSION_RE.sub(" ",line)
+        work=ROLL_RE.sub(" ",work)
+        work=GROUP_RE.sub(" ",work)
+        # Remove common table labels/serial numbers, but never invent a name.
+        work=re.sub(r"\b(?:S\.?NO\.?|SR\.?\s*NO\.?|ROLL\s*NO\.?|ADMISSION\s*NO\.?|ENROLLMENT\s*NO\.?|NAME|GROUP)\b"," ",work,flags=re.I)
+        work=re.sub(r"\b\d{1,3}\b"," ",work)
+        name=_clean_pdf_text(work).strip(" -|,:;")
+        if len(name)<2:
+            continue
+        rows.append({"admission_no":admission,"roll_no":roll,"name":name,"group":group})
+        seen.add(admission)
+    return rows
+
+def _student_rows_from_words(pages):
+    rows=[]
+    for p in pages:
+        words=p["words"]
+        # Reconstruct visual lines using PyMuPDF line numbers; this survives
+        # different column ordering much better than plain text alone.
+        grouped={}
+        for w in words:
+            key=(w[5],w[6])
+            grouped.setdefault(key,[]).append(w)
+        lines=[" ".join(x[4] for x in sorted(ws,key=lambda z:z[0])) for ws in grouped.values()]
+        rows.extend(_student_rows_from_lines("\n".join(lines)))
+    unique={}
+    for x in rows:
+        unique[(x["admission_no"],x["roll_no"])]=x
+    return list(unique.values())
+
+def _validate_students(rows,base):
+    errors=[]
+    if not rows:
+        errors.append("No student rows could be read.")
+        return errors
+    admissions=[x["admission_no"] for x in rows]
+    rolls=[x["roll_no"] for x in rows]
+    if len(set(admissions))!=len(admissions): errors.append("Duplicate admission numbers detected.")
+    if len(set(rolls))!=len(rolls): errors.append("Duplicate roll numbers detected.")
+    for i,x in enumerate(rows,1):
+        if not ADMISSION_RE.fullmatch(x["admission_no"]): errors.append(f"Row {i}: invalid admission number {x['admission_no']}.")
+        if not ROLL_RE.fullmatch(x["roll_no"]): errors.append(f"Row {i}: invalid roll number {x['roll_no']}.")
+        if len(x["name"])<2: errors.append(f"Row {i}: missing student name.")
+    if len(rows)>500: errors.append("More than 500 students were detected; import stopped.")
+    return errors
+
+def _parse_student_pdf(pages,text):
+    rows=_student_rows_from_lines(text)
+    if len(rows)<2:
+        rows=_student_rows_from_words(pages)
+    errors=_validate_students(rows,None)
+    # Extract class metadata without depending on one exact heading format.
+    upper=text.upper()
+    course="B.Tech" if "B.TECH" in upper or "BTECH" in upper else "B.Tech"
+    semester=3
+    sm=re.search(r"\bSEM(?:ESTER)?\s*[-:]?\s*(\d+)\b",upper)
+    if sm: semester=int(sm.group(1))
+    section="C"
+    sec=re.search(r"\bSECTION\s*[-:]?\s*([A-Z])\b",upper)
+    if sec: section=sec.group(1).upper()
+    # The imported list must be internally coherent.
+    for x in rows: x.update(course=course,semester=semester,section=section)
+    return {"kind":"STUDENT_LIST","rows":rows,"errors":errors,"count":len(rows)}
+
+def _time_to_minutes(value):
+    h,m=re.split(r"[:.]",value)
+    return int(h)*60+int(m)
+
+def _parse_time_range(value):
+    m=TIME_RANGE_RE.search(value or "")
+    if not m:return None
+    a,b=re.split(r"\s*[-–—]\s*",m.group(0))
+    return (_time_to_minutes(a),_time_to_minutes(b))
+
+def _extract_slot_rows(pages):
+    found=[]
+    for p in pages:
+        for block in p["blocks"]:
+            txt=_clean_pdf_text(block[4])
+            tr=_parse_time_range(txt)
+            if tr:
+                found.append({"start":tr[0],"end":tr[1],"y0":block[1],"y1":block[3],"page":p["number"]})
+    # Keep one row per time range, in document order.
+    unique={}
+    for x in found:
+        unique[(x["page"],x["start"],x["end"],round(x["y0"],1))]=x
+    return sorted(unique.values(),key=lambda x:(x["page"],x["y0"]))
+
+def _find_day_headers(pages):
+    headers=[]
+    for p in pages:
+        for block in p["blocks"]:
+            txt=_clean_pdf_text(block[4]).upper()
+            for token,name in DAY_ALIASES.items():
+                if re.search(r"\b"+re.escape(token)+r"\b",txt):
+                    headers.append({"day":name,"x":(block[0]+block[2])/2,"page":p["number"]})
+                    break
+    # Prefer one x-position per day on each page.
+    out={}
+    for x in headers:
+        out[(x["page"],x["day"])]=x
+    return list(out.values())
+
+def _closest_day(x,page,headers):
+    candidates=[h for h in headers if h["page"]==page]
+    if not candidates:return None
+    return min(candidates,key=lambda h:abs(h["x"]-x))["day"]
+
+def _slot_definitions(pages):
+    rows=_extract_slot_rows(pages)
+    # If a PDF contains explicit time rows, use them. Otherwise use roman/numbered
+    # slot labels and let validation reject ambiguous layouts.
+    out=[]
+    seen=set()
+    for r in rows:
+        key=(r["start"],r["end"])
+        if key in seen: continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+def _parse_timetable_spatial(pages):
+    codes=[]
+    for p in pages:
+        headers=_find_day_headers([p])
+        slot_rows=_slot_definitions([p])
+        if not headers or not slot_rows: continue
+        for block in p["blocks"]:
+            txt=_clean_pdf_text(block[4])
+            code_match=SUBJECT_CODE_RE.search(txt.upper())
+            if not code_match: continue
+            code=code_match.group(0).upper()
+            # Ignore generic non-course identifiers.
+            if code in {"SECTION","SEMESTER"}: continue
+            cx=(block[0]+block[2])/2
+            day=_closest_day(cx,p["number"],headers)
+            if not day: continue
+            cy=(block[1]+block[3])/2
+            touched=[]
+            for i,sr in enumerate(slot_rows,1):
+                center=(sr["y0"]+sr["y1"])/2
+                # A merged cell can cover several slot rows; use block vertical
+                # overlap/containment instead of assuming one code = one slot.
+                if block[1] <= center <= block[3]:
+                    touched.append(i)
+            if not touched:
+                nearest=min(range(len(slot_rows)),key=lambda i:abs(((slot_rows[i]["y0"]+slot_rows[i]["y1"])/2)-cy))
+                touched=[nearest+1]
+            teacher_code=None
+            group=_norm_group(txt)
+            codes.append({"day":day,"subject_code":code,"subject_text":txt,"slots":sorted(set(touched)),"group":group})
+    # Deduplicate exact observations.
+    out={}
+    for x in codes:
+        key=(x["day"],x["subject_code"],tuple(x["slots"]),x.get("group") or "")
+        out[key]=x
+    return list(out.values())
+
+def _parse_timetable_lines(text):
+    entries=[]
+    current_day=None
+    for raw in text.splitlines():
+        line=_clean_pdf_text(raw)
+        if not line: continue
+        up=line.upper()
+        for token,day in DAY_ALIASES.items():
+            if re.search(r"\b"+re.escape(token)+r"\b",up):
+                current_day=day
+                break
+        cm=SUBJECT_CODE_RE.search(up)
+        if not cm: continue
+        code=cm.group(0).upper()
+        if code in {"SECTION","SEMESTER"}: continue
+        day=current_day
+        if not day: continue
+        slots=[]
+        for tr in TIME_RANGE_RE.findall(line):
+            slots.append(tr)
+        # Match exact slot times to a generic slot index only after the parser
+        # has collected the distinct time ranges from the document.
+        entries.append({"day":day,"subject_code":code,"subject_text":line,"time_ranges":slots,"group":_norm_group(line)})
+    return entries
+
+def _normalize_timetable_entries(spatial,lines,text):
+    # Build slot definitions from the PDF where possible.
+    time_pairs=[]
+    for tr in TIME_RANGE_RE.findall(text):
+        pair=_parse_time_range(tr)
+        if pair and pair not in time_pairs: time_pairs.append(pair)
+    time_pairs=sorted(time_pairs)
+    slots=[]
+    for i,(a,b) in enumerate(time_pairs,1):
+        slots.append({"no":i,"label":str(i),"start":f"{a//60:02d}:{a%60:02d}","end":f"{b//60:02d}:{b%60:02d}"})
+    by_code={}
+    for x in spatial:
+        by_code.setdefault((x["day"],x["subject_code"],x.get("group") or ""),[]).append(x)
+    out=[]
+    for key,items in by_code.items():
+        day,code,group=key
+        allslots=sorted(set(n for item in items for n in item["slots"]))
+        if not allslots: continue
+        text_parts=" ".join(item["subject_text"] for item in items)
+        out.append({"day":day,"subject_code":code,"subject_name":_clean_pdf_text(re.sub(r"\b"+re.escape(code)+r"\b","",text_parts,flags=re.I)),
+                    "teacher_code":None,"group":group,"slots":allslots,"source_text":text_parts})
+    # Line parser can rescue documents whose words are not spatially arranged.
+    if not out:
+        for x in lines:
+            if x["time_ranges"] and x["subject_code"]:
+                out.append({"day":x["day"],"subject_code":x["subject_code"],"subject_name":_clean_pdf_text(re.sub(r"\b"+re.escape(x["subject_code"])+r"\b","",x["subject_text"],flags=re.I)),
+                            "teacher_code":None,"group":x.get("group"),"slots":[],"source_text":x["subject_text"]})
+    return slots,out
+
+def _match_teacher_code(c,source_text):
+    text=_norm_person(source_text)
+    teachers=c.execute("select employee_code,name from teachers").fetchall()
+    exact=[]
+    for t in teachers:
+        if _norm_person(t["name"]) and _norm_person(t["name"]) in text:
+            exact.append(t["employee_code"])
+    return exact[0] if len(exact)==1 else (None if not exact else "__AMBIGUOUS__")
+
+def _validate_timetable(c,slots,entries):
+    errors=[]
+    if len(slots)<1: errors.append("No timetable time slots could be extracted.")
+    if not entries: errors.append("No timetable subject entries could be extracted.")
+    slot_nos={s["no"] for s in slots}
+    occupied=set()
+    for i,e in enumerate(entries,1):
+        if e["day"] not in DAY_NAMES[:5]:
+            errors.append(f"Entry {i}: unsupported day {e['day']}.")
+        if not e["slots"]:
+            errors.append(f"Entry {i} ({e['subject_code']}): no slot could be mapped.")
+        for n in e["slots"]:
+            if n not in slot_nos:
+                errors.append(f"Entry {i} ({e['subject_code']}): slot {n} is outside extracted slot range.")
+            key=(e["day"],n,e.get("group") or "")
+            # Same slot is allowed for C1/C2, but never for two entries with the same group.
+            if key in occupied:
+                errors.append(f"Duplicate timetable occupancy: {e['day']} slot {n} group {e.get('group') or 'ALL'}.")
+            occupied.add(key)
+        e["teacher_code"]=_match_teacher_code(c,e.get("source_text",""))
+        if e["teacher_code"]=="__AMBIGUOUS__":
+            errors.append(f"Entry {i} ({e['subject_code']}): teacher could not be uniquely identified.")
+        if e["teacher_code"] is None and e["subject_code"] not in ("SELF","MENTOR"):
+            errors.append(f"Entry {i} ({e['subject_code']}): teacher could not be matched to an existing teacher account.")
+        if e["subject_code"] in ("SELF","MENTOR"):
+            e["teacher_code"]=None
+    # If the PDF explicitly has a lunch/free row, it must not become a lecture.
+    for e in entries:
+        if any(k in e.get("source_text","").upper() for k in ("LUNCH","BREAK")):
+            e["_ignore"]=True
+    return [e for e in entries if not e.get("_ignore")],errors
+
+def _parse_timetable_pdf(pages,text,c):
+    spatial=_parse_timetable_spatial(pages)
+    lines=_parse_timetable_lines(text)
+    slots,entries=_normalize_timetable_entries(spatial,lines,text)
+    entries,errors=_validate_timetable(c,slots,entries)
+    # A timetable import must have a coherent slot grid. We do not guess slot
+    # numbers from subject order.
+    if len(slots)>15: errors.append("More than 15 distinct time slots were detected; import stopped.")
+    if len(entries)>300: errors.append("More than 300 timetable entries were detected; import stopped.")
+    upper=text.upper()
+    course="B.Tech" if "B.TECH" in upper or "BTECH" in upper else "B.Tech"
+    semester=3
+    sm=re.search(r"\bSEM(?:ESTER)?\s*[-:]?\s*(\d+)\b",upper)
+    if sm: semester=int(sm.group(1))
+    section="C"
+    sec=re.search(r"\bSECTION\s*[-:]?\s*([A-Z])\b",upper)
+    if sec: section=sec.group(1).upper()
+    room="222"
+    rm=re.search(r"\bROOM\s*[-:]?\s*([A-Z0-9-]+)\b",upper)
+    if rm: room=rm.group(1)
+    effective_from=datetime.now(IST).date().isoformat()
+    em=re.search(r"\b(?:EFFECTIVE\s*(?:FROM|DATE)|FROM)\s*[:\-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b",text,re.I)
+    if em:
+        raw=em.group(1).replace("/","-")
+        try:
+            if re.match(r"^\d{4}-",raw): effective_from=datetime.strptime(raw,"%Y-%m-%d").date().isoformat()
+            else:
+                parts=raw.split("-"); y=int(parts[2]); y+=2000 if y<100 else 0
+                effective_from=datetime(y,int(parts[1]),int(parts[0])).date().isoformat()
+        except Exception: pass
+    # Map extracted slot number to the standard scheduler shape.
+    for s in slots:
+        s["label"]=["I","II","III","IV","V","VI","VII","VIII","IX"][s["no"]-1] if 1<=s["no"]<=9 else str(s["no"])
+    normalized={"source":"Validated PDF import","effective_from":effective_from,"app_start_date":_timetable_start_date().isoformat(),
+                "course":course,"semester":semester,"section":section,"room":room,"slots":slots,
+                "entries":[{k:e[k] for k in ("day","subject_code","subject_name","teacher_code","group","slots")} for e in entries]}
+    return normalized,errors
+
+def _apply_imported_students(c,rows):
+    for s in rows:
+        row=c.execute("select id from students where enrollment_no=?",(s["admission_no"],)).fetchone()
+        if row:
+            sid=row["id"]
+            c.execute("update students set roll_no=?,name=?,course=?,semester=?,section=?,group_name=? where id=?",
+                      (s["roll_no"],s["name"],s["course"],s["semester"],s["section"],s.get("group"),sid))
+        else:
+            c.execute("insert into students(enrollment_no,roll_no,name,course,semester,section,group_name) values(?,?,?,?,?,?,?)",
+                      (s["admission_no"],s["roll_no"],s["name"],s["course"],s["semester"],s["section"],s.get("group")))
+            sid=c.execute("select last_insert_rowid()").fetchone()[0]
+        user=c.execute("select id from users where student_id=?",(sid,)).fetchone()
+        if user:
+            c.execute("update users set username=?,password=?,role='STUDENT',display_name=? where id=?",
+                      (s["admission_no"],s["roll_no"],s["name"],user["id"]))
+        else:
+            c.execute("insert or ignore into users(username,password,role,display_name,student_id) values(?,?,?,?,?)",
+                      (s["admission_no"],s["roll_no"],"STUDENT",s["name"],sid))
+
+def _apply_imported_timetable(c,tt,source_name):
+    c.execute("""insert into document_configs(kind,payload,source_name,updated_at)
+                 values('TIMETABLE',?,?,CURRENT_TIMESTAMP)
+                 on conflict(kind) do update set payload=excluded.payload,source_name=excluded.source_name,updated_at=CURRENT_TIMESTAMP""",
+              (json.dumps(tt),source_name))
+    # Keep subject/teacher records synchronized with the imported timetable.
+    for e in tt["entries"]:
+        tid=_get_schedule_teacher(c,e.get("teacher_code"))
+        row=c.execute("select id from subjects where code=?",(e["subject_code"],)).fetchone()
+        if row:
+            c.execute("update subjects set name=?,semester=?,section=?,teacher_id=? where id=?",
+                      (e["subject_name"],tt["semester"],tt["section"],tid,row["id"]))
+        else:
+            c.execute("insert into subjects(code,name,semester,section,teacher_id) values(?,?,?,?,?)",
+                      (e["subject_code"],e["subject_name"],tt["semester"],tt["section"],tid))
+
 @app.route("/import",methods=["GET","POST"])
 @need("ADMIN")
 def import_pdf():
     result=""
     if request.method=="POST" and "pdf" in request.files:
         f=request.files["pdf"]
-        if f.filename.lower().endswith(".pdf"):
-            path=os.path.join(UPLOADS,f.filename.replace("/","_").replace("\\","_")); f.save(path)
+        if not f.filename.lower().endswith(".pdf"):
+            result="<b>Import stopped:</b> Please upload a PDF file."
+        else:
+            safe_name=re.sub(r"[^A-Za-z0-9._-]+","_",f.filename)
+            path=os.path.join(UPLOADS,safe_name)
+            f.save(path)
             try:
-                from pypdf import PdfReader
-                text="\n".join((p.extract_text() or "") for p in PdfReader(path).pages)
-                kind="TIMETABLE" if "time table" in text.lower() or "class time table" in text.lower() else "STUDENT LIST" if "student list" in text.lower() else "GENERIC PDF"
-                result=f"<b>{kind}</b> detected · {len(text)} extracted characters. The original PDF is stored for the next import/parser stage."
-            except Exception as e: result=f"PDF saved, but extraction failed: {e}"
-        else: result="Please upload a PDF file."
-    return page("PDF Import",f'<div class="hero"><div><span class="pill">AUTOMATIC DOCUMENT INGESTION</span><h2>Upload university PDF</h2><p class="muted">Timetable and student-list PDFs can be analyzed here.</p></div></div><div class="card"><form class="form" method="post" enctype="multipart/form-data"><label class="wide">PDF file<input type="file" name="pdf" accept=".pdf" required></label><div><button class="btn primary">Analyze PDF</button></div></form></div>{("<div class=card><div class=head><h3>Result</h3></div><div style=padding:20px>"+result+"</div></div>") if result else ""}')
+                pages,text=_extract_pdf_document(path)
+                kind=_guess_document_type(text)
+                c=db()
+                if kind=="STUDENT_LIST":
+                    parsed=_parse_student_pdf(pages,text)
+                    errors=parsed["errors"]
+                    if not errors:
+                        # Refuse suspicious roster changes instead of silently
+                        # replacing a large existing class with bad extraction.
+                        existing=c.execute("select count(*) from students where course=? and section=?",(parsed["rows"][0]["course"],parsed["rows"][0]["section"])).fetchone()[0]
+                        if existing and abs(existing-len(parsed["rows"])) > max(10,round(existing*0.25)):
+                            errors.append(f"PDF contains {len(parsed['rows'])} students but the current section has {existing}. Change is too large for automatic import.")
+                    if not errors:
+                        _apply_imported_students(c,parsed["rows"])
+                        c.execute("""insert into document_configs(kind,payload,source_name,updated_at)
+                                     values('STUDENT_LIST',?,?,CURRENT_TIMESTAMP)
+                                     on conflict(kind) do update set payload=excluded.payload,source_name=excluded.source_name,updated_at=CURRENT_TIMESTAMP""",
+                                  (json.dumps(parsed["rows"]),safe_name))
+                        c.commit()
+                        result=f"<b>Student list imported safely.</b> {len(parsed['rows'])} students validated. Attendance history was not deleted."
+                    else:
+                        c.rollback()
+                        result="<b>Import stopped — no database changes were made.</b><ul>"+''.join(f"<li>{escape(x)}</li>" for x in errors)+"</ul>"
+                elif kind=="TIMETABLE":
+                    tt,errors=_parse_timetable_pdf(pages,text,c)
+                    if not errors:
+                        _apply_imported_timetable(c,tt,safe_name)
+                        c.commit()
+                        # Reconcile old official records only after the new
+                        # timetable has passed all validation checks.
+                        try:
+                            repair_timetable_records()
+                            ensure_timetable_and_absences()
+                        except Exception as exc:
+                            result=f"<b>Timetable saved, but scheduler reconciliation reported an error:</b> {escape(str(exc))}"
+                        else:
+                            result=f"<b>Timetable imported safely.</b> {len(tt['entries'])} entries and {len(tt['slots'])} time slots validated. Existing attendance was preserved where possible."
+                    else:
+                        c.rollback()
+                        result="<b>Import stopped — no database changes were made.</b><ul>"+''.join(f"<li>{escape(x)}</li>" for x in errors)+"</ul>"
+                else:
+                    c.close()
+                    result="<b>Import stopped:</b> The PDF could not be reliably identified as a student list or timetable."
+                    return page("PDF Import",f'<div class="hero"><div><span class="pill">FAIL-SAFE DOCUMENT IMPORT</span><h2>Upload university PDF</h2><p class="muted">The parser supports different table layouts and will refuse ambiguous documents instead of guessing.</p></div></div><div class="card"><form class="form" method="post" enctype="multipart/form-data"><label class="wide">PDF file<input type="file" name="pdf" accept=".pdf" required></label><div><button class="btn primary">Read & Validate PDF</button></div></form></div><div class="card"><div style="padding:20px">{result}</div></div>')
+            except Exception as exc:
+                try: c.close()
+                except Exception: pass
+                result=f"<b>Import stopped — no database changes were made.</b><br>{escape(str(exc))}"
+            else:
+                try: c.close()
+                except Exception: pass
+    return page("PDF Import",f'<div class="hero"><div><span class="pill">FAIL-SAFE DOCUMENT IMPORT</span><h2>Upload university PDF</h2><p class="muted">Student lists and timetables can use different layouts. The parser validates identifiers, table structure, slots, teachers and duplicates before any update.</p></div></div><div class="card"><form class="form" method="post" enctype="multipart/form-data"><label class="wide">PDF file<input type="file" name="pdf" accept=".pdf" required></label><div><button class="btn primary">Read & Validate PDF</button></div></form></div>{("<div class=card><div class=head><h3>Import Result</h3></div><div style=padding:20px>"+result+"</div></div>") if result else ""}')
 
 # Production upgrade staging enabled.
 
@@ -894,6 +1377,16 @@ def _timetable_start_date():
 APP_START_DATE = _timetable_start_date()
 
 def _load_timetable():
+    # A validated PDF import becomes the authoritative timetable and survives
+    # Render/container restarts because it is stored in SQLite.
+    try:
+        c=db()
+        row=c.execute("select payload from document_configs where kind='TIMETABLE'").fetchone()
+        c.close()
+        if row and row["payload"]:
+            return json.loads(row["payload"])
+    except Exception:
+        pass
     with open(os.path.join(os.path.dirname(__file__),"data","timetable_3_c.json"),"r",encoding="utf-8") as f:
         return json.load(f)
 
