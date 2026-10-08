@@ -235,6 +235,18 @@
     },
     {
       "day": "Thursday",
+      "subject_code": "BECS301A",
+      "subject_name": "Data Structures & Algorithms",
+      "teacher_code": "T001",
+      "group": "25aiml(26c2)",
+      "slots": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "day": "Thursday",
       "subject_code": "BEAI301P",
       "subject_name": "Introduction to IOT Lab",
       "teacher_code": "T006",
