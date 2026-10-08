@@ -740,19 +740,19 @@ def cameras():
 
     camera_json=json.dumps(camera_config)
     body='''<style>
-      .camera-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;padding:14px}
-      .camera-card{display:block;width:100%;text-align:left;padding:14px;transition:.2s ease;border:1px solid #22344f;background:#0d1a2c;color:#eef4ff;border-radius:15px;cursor:pointer}
-      .camera-card:hover{transform:translateY(-3px);border-color:#667dff;box-shadow:0 16px 34px #0006}
+      .camera-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,260px));gap:12px;padding:14px;align-items:start}
+      .camera-card{display:block;width:240px;max-width:100%;text-align:left;padding:11px;transition:.2s ease;border:1px solid #22344f;background:#0d1a2c;color:#eef4ff;border-radius:13px;cursor:pointer}
+      .camera-card:hover{transform:translateY(-2px);border-color:#667dff;box-shadow:0 12px 26px #0006}
       .camera-card.active{border-color:#6e82ff;box-shadow:0 0 0 2px #667dff33}
-      .camera-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:11px}
-      .camera-open{font-size:9px;font-weight:950;color:#8fa7ff;letter-spacing:.06em}
-      .camera-card-title{display:block;font-size:15px;margin-bottom:5px}
-      .camera-card small{display:block;color:#8291aa;min-height:28px;line-height:1.4;font-size:10px}
-      .camera-thumb{height:98px;margin-top:12px;border-radius:11px;border:1px dashed #304565;background:radial-gradient(circle at 50% 40%,#1b3150,#091321 68%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#7e91ad}
-      .camera-thumb span{font-size:24px;color:#7387ff}.camera-thumb em{font-style:normal;font-size:9px;margin-top:6px}
+      .camera-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+      .camera-open{font-size:8px;font-weight:950;color:#8fa7ff;letter-spacing:.06em}
+      .camera-card-title{display:block;font-size:13px;margin-bottom:4px}
+      .camera-card small{display:block;color:#8291aa;min-height:24px;line-height:1.35;font-size:9px}
+      .camera-thumb{height:68px;margin-top:9px;border-radius:9px;border:1px dashed #304565;background:radial-gradient(circle at 50% 40%,#1b3150,#091321 68%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#7e91ad}
+      .camera-thumb span{font-size:19px;color:#7387ff}.camera-thumb em{font-style:normal;font-size:8px;margin-top:4px}
       .live-modal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(2,7,14,.82);backdrop-filter:blur(7px);padding:22px;box-sizing:border-box}
-      .live-modal.open{display:block}
-      .live-panel{width:min(1500px,100%);height:min(92vh,980px);margin:auto;background:#081321;border:1px solid #304565;border-radius:20px;box-shadow:0 30px 90px #000b;display:flex;flex-direction:column;overflow:hidden}
+      .live-modal.open{display:flex;align-items:center;justify-content:center}
+      .live-panel{width:min(1180px,calc(100vw - 44px));height:min(720px,calc(100vh - 44px));min-width:520px;min-height:380px;max-width:95vw;max-height:92vh;margin:0;background:#081321;border:1px solid #304565;border-radius:20px;box-shadow:0 30px 90px #000b;display:flex;flex-direction:column;overflow:hidden;resize:both}
       .live-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-bottom:1px solid #223752}
       .live-title{font-size:18px;font-weight:950}.live-sub{font-size:10px;color:#8291aa;margin-top:3px}
       .live-actions{display:flex;gap:8px;align-items:center}
@@ -767,7 +767,7 @@ def cameras():
       .feed-status{position:absolute;left:10px;bottom:10px;z-index:3;padding:5px 8px;border-radius:7px;background:rgba(3,10,20,.7);font-size:9px;color:#aebdd2}
       .empty-feeds{grid-column:1/-1;display:grid;place-items:center;min-height:260px;color:#71829b;border:1px dashed #2a3f5e;border-radius:14px}
       .detection-on{color:#80d7b2!important}
-      @media(max-width:700px){.live-modal{padding:8px}.live-panel{height:96vh;border-radius:14px}.feed-grid{grid-template-columns:1fr;padding:9px}.feed-tile{min-height:210px}.camera-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:10px}.camera-card{padding:11px}.camera-thumb{height:78px}}
+      @media(max-width:700px){.live-modal{padding:8px}.live-panel{width:96vw;height:92vh;min-width:0;min-height:300px;border-radius:14px}.feed-grid{grid-template-columns:1fr;padding:9px}.feed-tile{min-height:210px}.camera-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:10px}.camera-card{width:100%;padding:10px}.camera-thumb{height:62px}}
     </style>
     <div class="card"><div class="head"><div><span class="pill">CAMERA MANAGEMENT</span><h2 style="margin:8px 0 5px">University Cameras</h2><p class="muted">Click one or more cameras to add them to the live popup. AI face detection runs on every active feed.</p></div></div>
       <form class="form" method="post"><label>Name<input name="name" required></label><label>Location<input name="location" required></label><label>Stream URL<input name="url" placeholder="Browser-compatible HLS/WebRTC URL"></label><div><button class="btn primary">Authorize Camera</button></div></form>
