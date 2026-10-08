@@ -1,6 +1,8 @@
 from flask import Flask, request, redirect, url_for, session, render_template_string, flash, send_file
-import sqlite3, os, json, csv, io, base64
+import sqlite3, os, json, csv, io, base64, re, smtplib
+from email.message import EmailMessage
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from functools import wraps
 
 app = Flask(__name__)
@@ -46,6 +48,61 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}.side{
 @media(max-width:900px){.overall-box{min-width:0}}
 @media(max-width:900px){.side{width:70px}.brand div:not(.logo),.nav a span{display:none}.main{margin-left:70px;width:calc(100% - 70px)}.grid{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:1fr}.hero{flex-direction:column}}
 """
+
+IST=ZoneInfo("Asia/Kolkata")
+
+def student_email(name):
+    parts=[re.sub(r"[^a-z0-9]","",p.lower()) for p in (name or "").split() if re.sub(r"[^a-z0-9]","",p.lower())]
+    if len(parts)<2:
+        local_name="".join(parts)
+    else:
+        local_name=parts[0]+parts[-1]
+    return f"{local_name}.aiml2025@agra.sharda.ac.in"
+
+def send_lecture_notification(subject_name, code, lecture_date, start_time, end_time, room, section, course):
+    host=os.environ.get("SMTP_HOST","smtp.gmail.com")
+    port=int(os.environ.get("SMTP_PORT","587"))
+    username=os.environ.get("SMTP_USERNAME","")
+    password=os.environ.get("SMTP_PASSWORD","")
+    sender=os.environ.get("SMTP_FROM",username)
+    if not username or not password or not sender:
+        return False, "SMTP credentials are not configured on the server."
+    c=db()
+    students=c.execute("select name from students where course=? and section=? order by name",(course,section)).fetchall()
+    c.close()
+    recipients=[student_email(s["name"]) for s in students]
+    if not recipients:
+        return False, "No student email recipients were found."
+    msg=EmailMessage()
+    msg["Subject"]=f"Lecture Scheduled: {subject_name} — {lecture_date}"
+    msg["From"]=sender
+    msg["To"]=sender
+    msg.set_content(f"""Dear Students,
+
+A lecture has been scheduled for your class.
+
+Subject: {subject_name}
+Subject Code: {code}
+Date: {lecture_date}
+Time: {start_time} – {end_time}
+Room: {room}
+Section: {section}
+Course: {course}
+
+Please be present on time.
+
+Regards,
+Sharda University Agra
+Student Attendance System
+""")
+    try:
+        with smtplib.SMTP(host,port,timeout=20) as smtp:
+            smtp.starttls()
+            smtp.login(username,password)
+            smtp.send_message(msg,to_addrs=recipients)
+        return True, f"Notification email sent to {len(recipients)} students."
+    except Exception as exc:
+        return False, f"Lecture was created, but email notification failed: {exc}"
 
 def db():
     c=sqlite3.connect(DB, timeout=15)
@@ -623,6 +680,11 @@ def lectures():
         try: chosen_date=datetime.strptime(lecture_date,"%Y-%m-%d").date()
         except ValueError:
             c.close(); flash("Please select a valid date.","danger"); return redirect(url_for("lectures"))
+        now_ist=datetime.now(IST)
+        if chosen_date == now_ist.date():
+            slot_start=datetime.strptime(times[slot-1][0],"%H:%M").time()
+            if now_ist.time().replace(second=0,microsecond=0) >= slot_start:
+                c.close(); flash(f"Slot {slot} has already started or passed. You can only add a lecture today if its starting time has not passed.","danger"); return redirect(url_for("lectures"))
         if chosen_date.weekday()>=5:
             c.close(); flash("Lectures cannot be added on Saturday or Sunday.","danger"); return redirect(url_for("lectures"))
         if chosen_date < datetime.now().date() or chosen_date > (datetime(datetime.now().year + (1 if datetime.now().month==12 else 0), 1 if datetime.now().month==12 else datetime.now().month+1, 1).date() + timedelta(days=9)):
@@ -639,7 +701,18 @@ def lectures():
         st,en=times[slot-1]
         c.execute("insert into lectures(subject_id,teacher_id,lecture_no,course,section,room,lecture_date,start_time,end_time,slot_label,status) values(?,?,?,?,?,?,?,?,?,?,?)",(sid,teacher_id,slot,course,section,room,lecture_date,st,en,f"Slot {slot}","MANUAL"))
         audit("CREATE_LECTURE","lecture",c.execute("select last_insert_rowid()").fetchone()[0],"manual lecture")
-        c.commit(); flash("Lecture created successfully.","success")
+        c.commit()
+        email_message=""
+        now_ist=datetime.now(IST)
+        if chosen_date in (now_ist.date(), now_ist.date()+timedelta(days=1)):
+            subject_code=subject["code"]
+            sent,email_message=send_lecture_notification(subject["name"],subject_code,lecture_date,st,en,room,section,course)
+            if sent:
+                flash(f"Lecture created successfully. {email_message}","success")
+            else:
+                flash(f"Lecture created successfully. {email_message}","warning")
+        else:
+            flash("Lecture created successfully.","success")
     if u["role"]=="TEACHER":
         subjects=c.execute("""select distinct s.* from subjects s left join lectures l on l.subject_id=s.id where s.teacher_id=? or l.teacher_id=? order by s.name""",(u["teacher_id"],u["teacher_id"])).fetchall()
         lectures=c.execute("select l.*,s.code,s.name subject_name from lectures l join subjects s on s.id=l.subject_id where l.teacher_id=? order by l.lecture_date desc,l.lecture_no",(u["teacher_id"],)).fetchall()
