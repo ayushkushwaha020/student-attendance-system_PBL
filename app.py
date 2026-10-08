@@ -87,7 +87,66 @@ def login():
         c=db(); u=c.execute("select * from users where username=? and password=?",(request.form["username"].strip(),request.form["password"])).fetchone(); c.close()
         if u: session["uid"]=u["id"]; return redirect(url_for("dashboard"))
         flash("Invalid credentials.","danger")
-    return render_template_string("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>""" + CSS + """</style></head><body class="login"><form class="loginbox card" method="post"><div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University Attendance System</small></div></div><h2>Sign in</h2><p class="muted">Role is loaded automatically from your account.</p><input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required><button>Sign in</button><p class="small muted">Demo: admin/admin123 · teacher/teacher123 · student/student123</p></form></body></html>""")
+    return render_template_string("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>""" + CSS + """</style></head><body class="login"><form class="loginbox card" method="post"><div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University Attendance System</small></div></div><h2>Sign in</h2><p class="muted">Role is loaded automatically from your account.</p><input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required><button>Sign in</button><p class="small muted" style="text-align:center;margin-top:16px">New student? <a href="/register" style="color:#8d9aff;font-weight:800">Register here</a></p></form></body></html>""")
+
+@app.route("/register",methods=["GET","POST"])
+def register():
+    if me():
+        return redirect(url_for("dashboard"))
+    error=""
+    if request.method=="POST":
+        name=request.form.get("name","").strip()
+        enrollment=request.form.get("enrollment_no","").strip()
+        username=request.form.get("username","").strip()
+        password=request.form.get("password","")
+        confirm=request.form.get("confirm_password","")
+        course=request.form.get("course","BCA").strip() or "BCA"
+        try:
+            semester=int(request.form.get("semester","3"))
+        except ValueError:
+            semester=3
+        section=request.form.get("section","G").strip() or "G"
+
+        if not all([name,enrollment,username,password,confirm]):
+            error="Please fill in all required fields."
+        elif password != confirm:
+            error="Passwords do not match."
+        elif len(password) < 6:
+            error="Password must be at least 6 characters."
+        else:
+            c=db()
+            try:
+                if c.execute("select id from students where enrollment_no=?",(enrollment,)).fetchone():
+                    error="This enrollment number is already registered."
+                elif c.execute("select id from users where username=?",(username,)).fetchone():
+                    error="This username is already taken."
+                else:
+                    c.execute("insert into students(enrollment_no,name,course,semester,section) values(?,?,?,?,?)",(enrollment,name,course,semester,section))
+                    sid=c.execute("select last_insert_rowid()").fetchone()[0]
+                    c.execute("insert into users(username,password,role,display_name,student_id) values(?,?,?,?,?)",(username,password,"STUDENT",name,sid))
+                    c.commit()
+                    c.close()
+                    return redirect(url_for("login",registered="1"))
+            except sqlite3.IntegrityError:
+                c.rollback()
+                error="Registration could not be completed. Please check your details."
+            c.close()
+
+    return render_template_string("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>""" + CSS + """</style></head><body class="login"><form class="loginbox card" method="post">
+    <div class="brand"><div class="logo">AI</div><div><b>AttendAI</b><small>University Attendance System</small></div></div>
+    <h2>Register New Student</h2><p class="muted">Create your student account to access your attendance portal.</p>
+    {% if error %}<div class="flash">{{ error }}</div>{% endif %}
+    <input name="name" placeholder="Full Name" required>
+    <input name="enrollment_no" placeholder="Enrollment Number" required>
+    <input name="username" placeholder="Create Username" required>
+    <input name="password" type="password" placeholder="Create Password" required>
+    <input name="confirm_password" type="password" placeholder="Confirm Password" required>
+    <input name="course" value="BCA" placeholder="Course" required>
+    <input name="semester" type="number" min="1" max="10" value="3" placeholder="Semester" required>
+    <input name="section" value="G" placeholder="Section" required>
+    <button>Register Student</button>
+    <p class="small muted" style="text-align:center;margin-top:16px">Already registered? <a href="/login" style="color:#8d9aff;font-weight:800">Back to Login</a></p>
+    </form></body></html>""", error=error)
 
 @app.route("/logout")
 def logout(): session.clear(); return redirect(url_for("login"))
