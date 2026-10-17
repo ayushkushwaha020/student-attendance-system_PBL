@@ -1098,7 +1098,8 @@ def cameras():
     body=body.replace("__CAMERA_CARDS__","".join(cards) or '<div style="padding:20px" class="muted">No cameras available.</div>')
     body=body.replace("__CAMERA_JSON__",camera_json)
     body=body.replace("__LECTURE_JSON__",lecture_json)
-    body=body.replace("__LECTURE_OPTIONS__",active_lectures.map(x=>'<option value="'+x.id+'">'+escape(x.label)+'</option>').join(""))
+    lecture_options="".join('<option value="{}">{}</option>'.format(x["id"],escape(x["label"])) for x in active_lectures)
+    body=body.replace("__LECTURE_OPTIONS__",lecture_options)
     return page("Camera Management",body)
 
 @app.route("/cameras/<int:camera_id>")
