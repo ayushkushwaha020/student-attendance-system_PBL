@@ -122,6 +122,7 @@ def init():
     CREATE TABLE IF NOT EXISTS subjects(id INTEGER PRIMARY KEY,code TEXT UNIQUE,name TEXT,semester INTEGER,section TEXT,teacher_id INTEGER);
     CREATE TABLE IF NOT EXISTS lectures(id INTEGER PRIMARY KEY,subject_id INTEGER,teacher_id INTEGER,lecture_no INTEGER,course TEXT,section TEXT,room TEXT,lecture_date TEXT,start_time TEXT,end_time TEXT,group_name TEXT,slot_label TEXT,lecture_day TEXT,effective_from TEXT,status TEXT DEFAULT 'SCHEDULED',source_file_id INTEGER);
     CREATE TABLE IF NOT EXISTS attendance(id INTEGER PRIMARY KEY,student_id INTEGER,subject_id INTEGER,lecture_id INTEGER,attendance_date TEXT,source TEXT,marked_by INTEGER,UNIQUE(student_id,lecture_id,attendance_date));
+    CREATE TABLE IF NOT EXISTS demo_attendance(id INTEGER PRIMARY KEY,student_id INTEGER NOT NULL,subject_id INTEGER NOT NULL,lecture_id INTEGER NOT NULL,lecture_date TEXT NOT NULL,marked_at TEXT DEFAULT CURRENT_TIMESTAMP,marked_by INTEGER,camera_id INTEGER,confidence REAL,UNIQUE(student_id,lecture_id,lecture_date));
     CREATE TABLE IF NOT EXISTS cameras(id INTEGER PRIMARY KEY,camera_name TEXT,location TEXT,stream_url TEXT,authorized INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS student_face_profiles(id INTEGER PRIMARY KEY,student_id INTEGER NOT NULL,image_data TEXT NOT NULL,captured_at TEXT DEFAULT CURRENT_TIMESTAMP,is_active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS document_configs(kind TEXT PRIMARY KEY,payload TEXT NOT NULL,source_name TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -778,12 +779,20 @@ def cameras():
     now_dt=datetime.now(IST)
     today_str=now_dt.date().isoformat()
     now_hm=now_dt.strftime("%H:%M")
-    active_rows=c.execute("""select l.id,l.start_time,l.end_time,l.group_name,s.code,s.name
+    active_rows=c.execute("""select l.id,l.start_time,l.end_time,l.group_name,l.status,l.lecture_date,l.course,l.section,s.code,s.name
         from lectures l join subjects s on s.id=l.subject_id
-        where l.lecture_date=? and l.status='PDF_SCHEDULED'
+        where l.lecture_date=? and upper(coalesce(l.status,'SCHEDULED')) not in ('CANCELLED','CANCELED')
         order by l.start_time""",(today_str,)).fetchall()
-    active_lectures=[{"id":int(x["id"]),"label":x["code"]+" · "+x["name"]+" ("+(x["start_time"] or "")+"–"+(x["end_time"] or "")+")"+(" · "+x["group_name"] if x["group_name"] else "")}
-        for x in active_rows if x["start_time"] and x["end_time"] and x["start_time"]<=now_hm<=x["end_time"]]
+    active_lectures=[]
+    for x in active_rows:
+        if not x["start_time"] or not x["end_time"]:
+            continue
+        is_active=x["start_time"]<=now_hm<=x["end_time"]
+        label=x["code"]+" · "+x["name"]+" ("+x["start_time"]+"–"+x["end_time"]+")"
+        if x["group_name"]:
+            label+=" · "+x["group_name"]
+        label+=" · "+("LIVE NOW" if is_active else "DEMO ONLY")
+        active_lectures.append({"id":int(x["id"]),"label":label,"active":is_active})
     lecture_json=json.dumps(active_lectures)
     c.commit()
     c.close()
@@ -860,12 +869,18 @@ def cameras():
           <aside class="attendance-controls">
             <h3>Attendance Controls</h3>
             <p>Choose the lecture you are demonstrating. A verified face can be marked present only for this selected lecture while it is active.</p>
-            <label for="attendanceLecture" style="font-size:10px;font-weight:900;color:#9eb0c9">SELECT ACTIVE LECTURE</label>
-            <select id="attendanceLecture" class="lecture-select">
-              <option value="">Recognition only — do not mark attendance</option>__LECTURE_OPTIONS__
+            <label for="attendanceMode" style="font-size:10px;font-weight:900;color:#9eb0c9">ATTENDANCE MODE</label>
+            <select id="attendanceMode" class="lecture-select">
+              <option value="demo" selected>Demo Mode — save separately, no real attendance changes</option>
+              <option value="real">Real Attendance — active lecture only</option>
+              <option value="recognition">Recognition Only — do not mark attendance</option>
             </select>
-            <div class="lecture-status" id="lectureStatus">No lecture selected. Face recognition can run, but attendance will not be marked.</div>
-            <p>For your demo, open <b>Login Device Camera</b>, allow camera access, then select the exact lecture from this panel.</p>
+            <label for="attendanceLecture" style="font-size:10px;font-weight:900;color:#9eb0c9">SELECT TODAY'S LECTURE</label>
+            <select id="attendanceLecture" class="lecture-select">
+              <option value="">Choose a lecture…</option>__LECTURE_OPTIONS__
+            </select>
+            <div class="lecture-status" id="lectureStatus">Demo Mode is selected. Choose today's lecture to save a separate demo record; real attendance will remain unchanged.</div>
+            <p>Demo Mode is best for your presentation. Use Real Attendance only when the selected lecture is currently active.</p>
           </aside>
         </div>
       </div>
@@ -880,6 +895,7 @@ def cameras():
     const feedCount=document.getElementById("feedCount");
     const aiStatus=document.getElementById("aiStatus");
     const attendanceLecture=document.getElementById("attendanceLecture");
+    const attendanceMode=document.getElementById("attendanceMode");
     const lectureStatus=document.getElementById("lectureStatus");
     const addCameraBtn=document.getElementById("addCameraBtn");
     const cameraPicker=document.getElementById("cameraPicker");
@@ -897,13 +913,24 @@ def cameras():
       detectorPromise=(async()=>{
         try{
           aiStatus.textContent="Loading AI face detector…";
-          const {FaceDetector,FilesetResolver}=await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs");
-          const vision=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm");
+          let visionLib=null,vision=null,lastLoadError=null;
+          const cdnCandidates=[
+            {js:"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs",wasm:"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"},
+            {js:"https://unpkg.com/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs",wasm:"https://unpkg.com/@mediapipe/tasks-vision@0.10.22/wasm"}
+          ];
+          for(const cdn of cdnCandidates){
+            try{
+              visionLib=await import(cdn.js);
+              vision=await visionLib.FilesetResolver.forVisionTasks(cdn.wasm);
+              break;
+            }catch(loadError){lastLoadError=loadError;}
+          }
+          if(!visionLib||!vision)throw lastLoadError||new Error("Could not load MediaPipe from available CDNs");
           const model="https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite";
           try{
-            detector=await FaceDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:model,delegate:"GPU"},runningMode:"VIDEO",minDetectionConfidence:.5,minSuppressionThreshold:.3});
+            detector=await visionLib.FaceDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:model,delegate:"GPU"},runningMode:"VIDEO",minDetectionConfidence:.5,minSuppressionThreshold:.3});
           }catch(gpuError){
-            detector=await FaceDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:model,delegate:"CPU"},runningMode:"VIDEO",minDetectionConfidence:.5,minSuppressionThreshold:.3});
+            detector=await visionLib.FaceDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:model,delegate:"CPU"},runningMode:"VIDEO",minDetectionConfidence:.5,minSuppressionThreshold:.3});
           }
           aiStatus.textContent="AI face detection ON";
           aiStatus.classList.add("detection-on");
@@ -919,17 +946,23 @@ def cameras():
 
     function updateLectureStatus(){
       const selected=attendanceLecture.options[attendanceLecture.selectedIndex];
+      const mode=attendanceMode.value;
       if(!attendanceLecture.value){
-        lectureStatus.textContent="No lecture selected. Face recognition can run, but attendance will not be marked.";
-        lectureStatus.style.borderColor="#304565";
-        lectureStatus.style.color="#b9c9df";
+        lectureStatus.textContent="Choose a lecture. Recognition can run, but no attendance record will be saved.";
+        lectureStatus.style.borderColor="#304565";lectureStatus.style.color="#b9c9df";
+      }else if(mode==="demo"){
+        lectureStatus.textContent="DEMO MODE · "+(selected?.textContent||"Lecture")+". Verified matches are saved in a separate demo table; real attendance is untouched.";
+        lectureStatus.style.borderColor="#347b66";lectureStatus.style.color="#a6e8ce";
+      }else if(mode==="real"){
+        lectureStatus.textContent="REAL ATTENDANCE · "+(selected?.textContent||"Lecture")+". Attendance is saved only if this lecture is active now and the student matches its class.";
+        lectureStatus.style.borderColor="#b7791f";lectureStatus.style.color="#ffd28a";
       }else{
-        lectureStatus.textContent="Selected: "+(selected?.textContent||"Lecture")+". Verified matches will be marked only for this lecture, if it is currently active and the student belongs to the class.";
-        lectureStatus.style.borderColor="#347b66";
-        lectureStatus.style.color="#a6e8ce";
+        lectureStatus.textContent="RECOGNITION ONLY · "+(selected?.textContent||"Lecture")+". No attendance will be changed.";
+        lectureStatus.style.borderColor="#304565";lectureStatus.style.color="#b9c9df";
       }
     }
     attendanceLecture.addEventListener("change",updateLectureStatus);
+    attendanceMode.addEventListener("change",updateLectureStatus);
 
     function renderCameraPicker(){
       cameraPickerList.innerHTML="";
@@ -1068,12 +1101,13 @@ def cameras():
         c.height=Math.max(80,Math.round(item.video.videoHeight*scale));
         c.getContext("2d").drawImage(item.video,0,0,c.width,c.height);
         const image=c.toDataURL("image/jpeg",0.62);
-        const response=await fetch("/api/recognize-frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image,camera_id:item.camera.id,lecture_id:attendanceLecture.value||null})});
+        const response=await fetch("/api/recognize-frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image,camera_id:item.camera.id,lecture_id:attendanceLecture.value||null,attendance_mode:attendanceMode.value})});
         const out=await response.json();
         if(!active.has(item.camera.id))return;
         if(out.result==="MATCH"&&out.student_name){
-          item.status.textContent=(out.attendance_marked?"PRESENT · ":"MATCHED · ")+out.student_name+(out.confidence?" · "+out.confidence+"%":"");
-          item.status.style.color=out.attendance_marked?"#80d7b2":"#a9c4ff";
+          const wasMarked=out.demo_marked?"DEMO PRESENT · ":(out.attendance_marked?"PRESENT · ":"MATCHED · ");
+          item.status.textContent=wasMarked+out.student_name+(out.confidence?" · "+out.confidence+"%":"");
+          item.status.style.color=(out.attendance_marked||out.demo_marked)?"#80d7b2":"#a9c4ff";
         }else if(!out.ok){item.status.textContent=out.message||"Recognition service unavailable";item.status.style.color="#ffb15e";}
         else{item.status.textContent=out.message||"No verified identity — UNKNOWN";item.status.style.color="#aebdd2";}
       }catch(error){console.warn("Recognition request failed",error);}
@@ -1907,6 +1941,9 @@ def recognize_frame():
     image=data.get("image","")
     camera_id=data.get("camera_id")
     lecture_id=data.get("lecture_id")
+    attendance_mode=str(data.get("attendance_mode") or "recognition").lower()
+    if attendance_mode not in ("demo","real","recognition"):
+        attendance_mode="recognition"
     if not isinstance(image,str) or not image.startswith("data:image/"):
         return {"ok":False,"result":"UNKNOWN","message":"A valid camera frame is required."},400
     try:
@@ -1938,8 +1975,10 @@ def recognize_frame():
     safe_match=bool(matched_student and result.get("models_agree"))
     final_result="MATCH" if safe_match else "UNKNOWN"
     attendance_marked=False
-    attendance_message="Recognition only; select an active lecture to mark attendance."
-    if safe_match and lecture_id:
+    demo_marked=False
+    should_audit_attendance=False
+    attendance_message="Recognition only; choose Demo Mode or an active lecture to record attendance."
+    if safe_match and lecture_id and attendance_mode in ("demo","real"):
         lec=c.execute("""select l.*,s.code subject_code,s.name subject_name from lectures l
             join subjects s on s.id=l.subject_id where l.id=?""",(lecture_id,)).fetchone()
         now=datetime.now(IST)
@@ -1950,7 +1989,10 @@ def recognize_frame():
             start_dt=end_dt=None
         group_ok=bool(lec and (not lec["group_name"] or not matched_student["group_name"] or lec["group_name"]==matched_student["group_name"]))
         class_ok=bool(lec and lec["course"]==matched_student["course"] and lec["section"]==matched_student["section"])
-        if lec and start_dt and end_dt and lec["lecture_date"]==now.date().isoformat() and start_dt<=now<=end_dt and group_ok and class_ok:
+        lecture_today=bool(lec and lec["lecture_date"]==now.date().isoformat())
+        lecture_active=bool(lecture_today and start_dt and end_dt and start_dt<=now<=end_dt)
+        lecture_usable=bool(lec and lecture_today and start_dt and end_dt and str(lec["status"] or "").upper() not in ("CANCELLED","CANCELED"))
+        if group_ok and class_ok and lecture_active and attendance_mode=="real":
             existing_attendance=c.execute("select source from attendance where student_id=? and lecture_id=? and attendance_date=?",(matched_student["id"],lec["id"],lec["lecture_date"])).fetchone()
             should_audit_attendance=not existing_attendance or existing_attendance["source"]!="AI_RECOGNITION"
             c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
@@ -1958,18 +2000,29 @@ def recognize_frame():
                 subject_id=excluded.subject_id,source='AI_RECOGNITION',marked_by=excluded.marked_by""",
                 (matched_student["id"],lec["subject_id"],lec["id"],lec["lecture_date"],"AI_RECOGNITION",me()["id"]))
             attendance_marked=True
-            attendance_message="Attendance marked for "+lec["subject_name"]+"."
-        else:
-            attendance_message="Identity matched, but no matching active lecture was found. Attendance was not changed."
+            attendance_message="Real attendance marked for "+lec["subject_name"]+"."
+        elif group_ok and class_ok and lecture_usable and attendance_mode=="demo":
+            c.execute("""insert into demo_attendance(student_id,subject_id,lecture_id,lecture_date,marked_by,camera_id,confidence)
+                values(?,?,?,?,?,?,?) on conflict(student_id,lecture_id,lecture_date) do update set
+                marked_at=CURRENT_TIMESTAMP,marked_by=excluded.marked_by,camera_id=excluded.camera_id,confidence=excluded.confidence""",
+                (matched_student["id"],lec["subject_id"],lec["id"],lec["lecture_date"],me()["id"],camera_id,confidence))
+            demo_marked=True
+            attendance_message="DEMO attendance saved separately for "+lec["subject_name"]+". Real attendance was not changed."
+        elif attendance_mode=="real":
+            attendance_message="Real attendance was not changed: the lecture must be active now and match the student's class."
+        elif attendance_mode=="demo":
+            attendance_message="Demo record not saved: choose today's scheduled lecture for the student's class. Real attendance was not changed."
     c.execute("insert into recognition_events(camera_id,student_id,lecture_id,confidence,result,review_status) values(?,?,?,?,?,?)",
-        (camera_id,matched_student["id"] if safe_match else None,lecture_id if attendance_marked else None,confidence if safe_match else None,final_result,"AUTO_MATCH" if attendance_marked else "PENDING"))
+        (camera_id,matched_student["id"] if safe_match else None,lecture_id if (attendance_marked or demo_marked) else None,confidence if safe_match else None,final_result,"DEMO_MODE" if demo_marked else ("AUTO_MATCH" if attendance_marked else "PENDING")))
     event_id=c.execute("select last_insert_rowid()").fetchone()[0]
     c.commit(); c.close()
     if attendance_marked and should_audit_attendance:
         audit("AI_RECOGNITION_ATTENDANCE","attendance",event_id,"FaceNet + InsightFace matched "+matched_student["name"]+"; "+attendance_message)
+    if demo_marked:
+        audit("DEMO_ATTENDANCE_MARKED","demo_attendance",event_id,"FaceNet + InsightFace matched "+matched_student["name"]+"; "+attendance_message)
     return {"ok":True,"result":final_result,"student_id":matched_student["id"] if safe_match else None,
         "student_name":matched_student["name"] if safe_match else None,"confidence":confidence if safe_match else None,
-        "attendance_marked":attendance_marked,"message":attendance_message,"checks":result.get("checks",{})}
+        "attendance_marked":attendance_marked,"demo_marked":demo_marked,"message":attendance_message,"checks":result.get("checks",{})}
 
 
 @app.route("/api/face-embeddings/rebuild",methods=["POST"])
