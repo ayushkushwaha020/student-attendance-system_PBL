@@ -780,7 +780,7 @@ def cameras():
     now_hm=now_dt.strftime("%H:%M")
     active_rows=c.execute("""select l.id,l.start_time,l.end_time,l.group_name,s.code,s.name
         from lectures l join subjects s on s.id=l.subject_id
-        where l.lecture_date=? and l.status='PDF_SCHEDULED' and l.course='B.Tech' and l.section='C'
+        where l.lecture_date=? and l.status='PDF_SCHEDULED'
         order by l.start_time""",(today_str,)).fetchall()
     active_lectures=[{"id":int(x["id"]),"label":x["code"]+" · "+x["name"]+" ("+(x["start_time"] or "")+"–"+(x["end_time"] or "")+")"+(" · "+x["group_name"] if x["group_name"] else "")}
         for x in active_rows if x["start_time"] and x["end_time"] and x["start_time"]<=now_hm<=x["end_time"]]
@@ -829,7 +829,7 @@ def cameras():
       .camera-picker-item{border:1px solid #304565;background:#10213a;color:#dce7f8;border-radius:9px;padding:7px 10px;font-size:10px;font-weight:850;cursor:pointer}
       .camera-picker-item:hover{border-color:#657cff}
       .camera-picker-item.active{border-color:#6e82ff;background:#172b4d;color:#9eb0ff}
-      .feed-grid{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;overflow:auto;flex:1;align-content:start}
+      .live-workspace{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:0;min-height:0;flex:1;overflow:hidden}.attendance-controls{padding:16px;border-left:1px solid #223752;background:#0a1727;display:flex;flex-direction:column;gap:12px;overflow:auto}.attendance-controls h3{margin:0;font-size:14px}.attendance-controls p{font-size:11px;line-height:1.5;color:#8291aa;margin:0}.lecture-select{width:100%;box-sizing:border-box;padding:11px;border:1px solid #405779;border-radius:10px;background:#0b1728;color:#edf3ff;font-size:12px}.lecture-status{padding:10px;border:1px solid #304565;border-radius:10px;background:#10213a;color:#b9c9df;font-size:11px;line-height:1.5}.feed-grid{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;overflow:auto;min-height:0;align-content:start}
       .feed-tile{position:relative;min-height:235px;aspect-ratio:16/10;background:#02070d;border:1px solid #263c59;border-radius:14px;overflow:hidden}
       .feed-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#02070d}
       .feed-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
@@ -838,7 +838,7 @@ def cameras():
       .feed-status{position:absolute;left:10px;bottom:10px;z-index:3;padding:5px 8px;border-radius:7px;background:rgba(3,10,20,.7);font-size:9px;color:#aebdd2}
       .empty-feeds{grid-column:1/-1;display:grid;place-items:center;min-height:260px;color:#71829b;border:1px dashed #2a3f5e;border-radius:14px}
       .detection-on{color:#80d7b2!important}
-      @media(max-width:700px){.live-modal{padding:8px}.live-panel{width:96vw;height:92vh;min-width:0;min-height:300px;border-radius:14px}.feed-grid{grid-template-columns:1fr;padding:9px}.feed-tile{min-height:210px}.camera-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:10px}.camera-card{width:100%;padding:10px}.camera-thumb{height:62px}}
+      @media(max-width:700px){.live-modal{padding:8px}.live-panel{width:96vw;height:92vh;min-width:0;min-height:300px;border-radius:14px}.live-workspace{grid-template-columns:1fr;overflow:auto}.attendance-controls{border-left:0;border-top:1px solid #223752;order:-1}.feed-grid{grid-template-columns:1fr;padding:9px;overflow:visible}.feed-tile{min-height:210px}.camera-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:10px}.camera-card{width:100%;padding:10px}.camera-thumb{height:62px}}
     </style>
     <div class="card"><div class="head"><div><span class="pill">CAMERA MANAGEMENT</span><h2 style="margin:8px 0 5px">University Cameras</h2><p class="muted">Click one or more cameras to add them to the live popup. AI face detection runs on every active feed.</p></div></div>
       <form class="form" method="post"><label>Name<input name="name" required></label><label>Location<input name="location" required></label><label>Stream URL<input name="url" placeholder="Browser-compatible HLS/WebRTC URL"></label><div><button class="btn primary">Authorize Camera</button></div></form>
@@ -855,13 +855,19 @@ def cameras():
           <div class="camera-picker-title">Add cameras to this live view</div>
           <div class="camera-picker-list" id="cameraPickerList"></div>
         </div>
-        <div class="camera-picker-title" style="padding:10px 16px 0">Attendance lecture (only active lectures can be marked)</div>
-        <div style="padding:8px 16px 12px;border-bottom:1px solid #223752">
-          <select id="attendanceLecture" style="max-width:100%;width:min(680px,100%);padding:9px;border:1px solid #304565;border-radius:9px;background:#0b1728;color:#edf3ff">
-            <option value="">Recognition only — do not mark attendance</option>__LECTURE_OPTIONS__
-          </select>
+        <div class="live-workspace">
+          <div class="feed-grid" id="feedGrid"><div class="empty-feeds">Add one or more cameras to start their live feeds.</div></div>
+          <aside class="attendance-controls">
+            <h3>Attendance Controls</h3>
+            <p>Choose the lecture you are demonstrating. A verified face can be marked present only for this selected lecture while it is active.</p>
+            <label for="attendanceLecture" style="font-size:10px;font-weight:900;color:#9eb0c9">SELECT ACTIVE LECTURE</label>
+            <select id="attendanceLecture" class="lecture-select">
+              <option value="">Recognition only — do not mark attendance</option>__LECTURE_OPTIONS__
+            </select>
+            <div class="lecture-status" id="lectureStatus">No lecture selected. Face recognition can run, but attendance will not be marked.</div>
+            <p>For your demo, open <b>Login Device Camera</b>, allow camera access, then select the exact lecture from this panel.</p>
+          </aside>
         </div>
-        <div class="feed-grid" id="feedGrid"><div class="empty-feeds">Add one or more cameras to start their live feeds.</div></div>
       </div>
     </div>
 
@@ -874,6 +880,7 @@ def cameras():
     const feedCount=document.getElementById("feedCount");
     const aiStatus=document.getElementById("aiStatus");
     const attendanceLecture=document.getElementById("attendanceLecture");
+    const lectureStatus=document.getElementById("lectureStatus");
     const addCameraBtn=document.getElementById("addCameraBtn");
     const cameraPicker=document.getElementById("cameraPicker");
     const cameraPickerList=document.getElementById("cameraPickerList");
@@ -909,6 +916,20 @@ def cameras():
       })();
       return detectorPromise;
     }
+
+    function updateLectureStatus(){
+      const selected=attendanceLecture.options[attendanceLecture.selectedIndex];
+      if(!attendanceLecture.value){
+        lectureStatus.textContent="No lecture selected. Face recognition can run, but attendance will not be marked.";
+        lectureStatus.style.borderColor="#304565";
+        lectureStatus.style.color="#b9c9df";
+      }else{
+        lectureStatus.textContent="Selected: "+(selected?.textContent||"Lecture")+". Verified matches will be marked only for this lecture, if it is currently active and the student belongs to the class.";
+        lectureStatus.style.borderColor="#347b66";
+        lectureStatus.style.color="#a6e8ce";
+      }
+    }
+    attendanceLecture.addEventListener("change",updateLectureStatus);
 
     function renderCameraPicker(){
       cameraPickerList.innerHTML="";
@@ -1094,6 +1115,7 @@ def cameras():
     window.addEventListener("beforeunload",()=>Array.from(active.values()).forEach(item=>{if(item.stream)item.stream.getTracks().forEach(t=>t.stop());}));
 
     syncCounts();
+    updateLectureStatus();
     </script>'''
     body=body.replace("__CAMERA_CARDS__","".join(cards) or '<div style="padding:20px" class="muted">No cameras available.</div>')
     body=body.replace("__CAMERA_JSON__",camera_json)
