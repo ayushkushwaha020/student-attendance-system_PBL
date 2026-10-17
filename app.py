@@ -1867,7 +1867,15 @@ def audit_logs():
 def recognition_review():
     c=db(); events=c.execute("select r.*,s.name student_name,c.camera_name from recognition_events r left join students s on s.id=r.student_id left join cameras c on c.id=r.camera_id order by r.id desc limit 100").fetchall(); c.close()
     rows="".join(f'<tr><td>{x["captured_at"]}</td><td>{x["camera_name"] or "—"}</td><td>{x["student_name"] or "UNKNOWN"}</td><td>{x["result"]}</td><td>{(str(round(x["confidence"],1))+"%") if x["confidence"] is not None else "—"}</td><td>{x["review_status"]}</td></tr>' for x in events)
-    return page("Recognition Review",f'<div class="hero"><div><span class="pill">REVIEW QUEUE</span><h2>Recognition events</h2><p class="muted">Uncertain matches stay UNKNOWN until reviewed.</p></div></div><div class="card"><div class="table"><table><tr><th>Time</th><th>Camera</th><th>Student</th><th>Result</th><th>Confidence</th><th>Review</th></tr>{rows or "<tr><td colspan=6>No recognition events.</td></tr>"}</table></div></div>')
+    body=f'''<div class="hero"><div><span class="pill">REVIEW QUEUE</span><h2>Recognition events</h2>
+      <p class="muted">Uncertain matches stay UNKNOWN until reviewed.</p>
+      <button class="btn primary" id="rebuildFaceEmbeddings" type="button">Prepare Existing Face Scans</button>
+      <span id="faceRebuildStatus" class="muted small" style="margin-left:10px">Build FaceNet + InsightFace embeddings for previously saved scans.</span>
+      </div></div><div class="card"><div class="table"><table><tr><th>Time</th><th>Camera</th><th>Student</th><th>Result</th><th>Confidence</th><th>Review</th></tr>{rows or "<tr><td colspan=6>No recognition events.</td></tr>"}</table></div></div>
+      <script>
+      document.getElementById("rebuildFaceEmbeddings").onclick=async function(){const b=this,s=document.getElementById("faceRebuildStatus");b.disabled=true;s.textContent="Processing saved face scans…";try{const r=await fetch("/api/face-embeddings/rebuild",{method:"POST"});const d=await r.json();s.textContent=d.message+" Saved: "+d.saved+", skipped: "+d.skipped+", remaining: "+d.remaining;b.disabled=!!d.remaining;}catch(e){s.textContent="Could not reach the inference service. Please retry when it is online.";b.disabled=false;}};
+      </script>'''
+    return page("Recognition Review",body)
 
 
 @app.route("/api/recognize-frame",methods=["POST"])
