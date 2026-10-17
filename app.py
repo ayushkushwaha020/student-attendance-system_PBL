@@ -775,6 +775,16 @@ def cameras():
         audit("ADD_CAMERA","camera",camera_id,"Added camera: "+name+" at "+location)
         flash("Camera added.","success")
     rows=c.execute("select * from cameras where lower(camera_name) not like '%room 222%' order by case when lower(camera_name)=? then 0 else 1 end,id desc",("login device camera",)).fetchall()
+    now_dt=datetime.now(IST)
+    today_str=now_dt.date().isoformat()
+    now_hm=now_dt.strftime("%H:%M")
+    active_rows=c.execute("""select l.id,l.start_time,l.end_time,l.group_name,s.code,s.name
+        from lectures l join subjects s on s.id=l.subject_id
+        where l.lecture_date=? and l.status='PDF_SCHEDULED' and l.course='B.Tech' and l.section='C'
+        order by l.start_time""",(today_str,)).fetchall()
+    active_lectures=[{"id":int(x["id"]),"label":x["code"]+" · "+x["name"]+" ("+(x["start_time"] or "")+"–"+(x["end_time"] or "")+")"+(" · "+x["group_name"] if x["group_name"] else "")}
+        for x in active_rows if x["start_time"] and x["end_time"] and x["start_time"]<=now_hm<=x["end_time"]]
+    lecture_json=json.dumps(active_lectures)
     c.commit()
     c.close()
 
@@ -845,17 +855,25 @@ def cameras():
           <div class="camera-picker-title">Add cameras to this live view</div>
           <div class="camera-picker-list" id="cameraPickerList"></div>
         </div>
+        <div class="camera-picker-title" style="padding:10px 16px 0">Attendance lecture (only active lectures can be marked)</div>
+        <div style="padding:8px 16px 12px;border-bottom:1px solid #223752">
+          <select id="attendanceLecture" style="max-width:100%;width:min(680px,100%);padding:9px;border:1px solid #304565;border-radius:9px;background:#0b1728;color:#edf3ff">
+            <option value="">Recognition only — do not mark attendance</option>__LECTURE_OPTIONS__
+          </select>
+        </div>
         <div class="feed-grid" id="feedGrid"><div class="empty-feeds">Add one or more cameras to start their live feeds.</div></div>
       </div>
     </div>
 
     <script type="module">
     const CAMERA_CONFIG=__CAMERA_JSON__;
+    const ACTIVE_LECTURES=__LECTURE_JSON__;
     const modal=document.getElementById("liveModal");
     const feedGrid=document.getElementById("feedGrid");
     const selectedCount=document.getElementById("selectedCount");
     const feedCount=document.getElementById("feedCount");
     const aiStatus=document.getElementById("aiStatus");
+    const attendanceLecture=document.getElementById("attendanceLecture");
     const addCameraBtn=document.getElementById("addCameraBtn");
     const cameraPicker=document.getElementById("cameraPicker");
     const cameraPickerList=document.getElementById("cameraPickerList");
@@ -995,7 +1013,7 @@ def cameras():
       canvas.className="feed-overlay";
       tile.append(label,count,status,video,canvas);
       feedGrid.appendChild(tile);
-      const item={camera,tile,video,canvas,ctx:canvas.getContext("2d"),count,stream:null};
+      const item={camera,tile,video,canvas,ctx:canvas.getContext("2d"),count,stream:null,recognitionTimer:null,recognitionBusy:false};
       active.set(camera.id,item);
 
       if(camera.local){
@@ -1014,13 +1032,37 @@ def cameras():
         status.textContent="No browser-compatible stream configured.";
       }
       getDetector().catch(()=>{});
+      item.recognitionTimer=setInterval(()=>recognizeFrame(item),5000);
       syncCounts();
       startDetectionLoop();
+    }
+
+    async function recognizeFrame(item){
+      if(!active.has(item.camera.id)||item.recognitionBusy||!item.video.videoWidth||item.video.readyState<2)return;
+      item.recognitionBusy=true;
+      try{
+        const c=document.createElement("canvas");
+        const scale=Math.min(1,640/item.video.videoWidth);
+        c.width=Math.max(80,Math.round(item.video.videoWidth*scale));
+        c.height=Math.max(80,Math.round(item.video.videoHeight*scale));
+        c.getContext("2d").drawImage(item.video,0,0,c.width,c.height);
+        const image=c.toDataURL("image/jpeg",0.62);
+        const response=await fetch("/api/recognize-frame",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image,camera_id:item.camera.id,lecture_id:attendanceLecture.value||null})});
+        const out=await response.json();
+        if(!active.has(item.camera.id))return;
+        if(out.result==="MATCH"&&out.student_name){
+          item.status.textContent=(out.attendance_marked?"PRESENT · ":"MATCHED · ")+out.student_name+(out.confidence?" · "+out.confidence+"%":"");
+          item.status.style.color=out.attendance_marked?"#80d7b2":"#a9c4ff";
+        }else if(!out.ok){item.status.textContent=out.message||"Recognition service unavailable";item.status.style.color="#ffb15e";}
+        else{item.status.textContent=out.message||"No verified identity — UNKNOWN";item.status.style.color="#aebdd2";}
+      }catch(error){console.warn("Recognition request failed",error);}
+      finally{item.recognitionBusy=false;}
     }
 
     function removeFeed(cameraId){
       const item=active.get(cameraId);
       if(!item) return;
+      if(item.recognitionTimer)clearInterval(item.recognitionTimer);
       if(item.stream) item.stream.getTracks().forEach(t=>t.stop());
       item.video.pause();item.video.srcObject=null;item.video.removeAttribute("src");item.video.load();
       item.tile.remove();
@@ -1055,6 +1097,8 @@ def cameras():
     </script>'''
     body=body.replace("__CAMERA_CARDS__","".join(cards) or '<div style="padding:20px" class="muted">No cameras available.</div>')
     body=body.replace("__CAMERA_JSON__",camera_json)
+    body=body.replace("__LECTURE_JSON__",lecture_json)
+    body=body.replace("__LECTURE_OPTIONS__",active_lectures.map(x=>'<option value="'+x.id+'">'+escape(x.label)+'</option>').join(""))
     return page("Camera Management",body)
 
 @app.route("/cameras/<int:camera_id>")
