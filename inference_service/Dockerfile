@@ -17,4 +17,4 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY inference_service/ ./inference_service/
 WORKDIR /service/inference_service
 
-CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port \$\{PORT:-8000\}"]
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
