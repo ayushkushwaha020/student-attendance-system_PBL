@@ -1013,7 +1013,7 @@ def cameras():
       canvas.className="feed-overlay";
       tile.append(label,count,status,video,canvas);
       feedGrid.appendChild(tile);
-      const item={camera,tile,video,canvas,ctx:canvas.getContext("2d"),count,stream:null,recognitionTimer:null,recognitionBusy:false};
+      const item={camera,tile,video,canvas,ctx:canvas.getContext("2d"),count,status,stream:null,recognitionTimer:null,recognitionBusy:false};
       active.set(camera.id,item);
 
       if(camera.local){
@@ -1904,7 +1904,7 @@ def recognize_frame():
     matched_sid=result.get("student_id") if result.get("result")=="MATCH" else None
     confidence=float(result.get("confidence") or 0)
     matched_student=c.execute("select id,name,course,section,group_name from students where id=?",(matched_sid,)).fetchone() if matched_sid else None
-    safe_match=bool(matched_student and result.get("models_agree") and confidence>=85)
+    safe_match=bool(matched_student and result.get("models_agree"))
     final_result="MATCH" if safe_match else "UNKNOWN"
     attendance_marked=False
     attendance_message="Recognition only; select an active lecture to mark attendance."
@@ -1920,6 +1920,8 @@ def recognize_frame():
         group_ok=bool(lec and (not lec["group_name"] or not matched_student["group_name"] or lec["group_name"]==matched_student["group_name"]))
         class_ok=bool(lec and lec["course"]==matched_student["course"] and lec["section"]==matched_student["section"])
         if lec and start_dt and end_dt and lec["lecture_date"]==now.date().isoformat() and start_dt<=now<=end_dt and group_ok and class_ok:
+            existing_attendance=c.execute("select source from attendance where student_id=? and lecture_id=? and attendance_date=?",(matched_student["id"],lec["id"],lec["lecture_date"])).fetchone()
+            should_audit_attendance=not existing_attendance or existing_attendance["source"]!="AI_RECOGNITION"
             c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
                 values(?,?,?,?,?,?) on conflict(student_id,lecture_id,attendance_date) do update set
                 subject_id=excluded.subject_id,source='AI_RECOGNITION',marked_by=excluded.marked_by""",
@@ -1932,7 +1934,7 @@ def recognize_frame():
         (camera_id,matched_student["id"] if safe_match else None,lecture_id if attendance_marked else None,confidence if safe_match else None,final_result,"AUTO_MATCH" if attendance_marked else "PENDING"))
     event_id=c.execute("select last_insert_rowid()").fetchone()[0]
     c.commit(); c.close()
-    if attendance_marked:
+    if attendance_marked and should_audit_attendance:
         audit("AI_RECOGNITION_ATTENDANCE","attendance",event_id,"FaceNet + InsightFace matched "+matched_student["name"]+"; "+attendance_message)
     return {"ok":True,"result":final_result,"student_id":matched_student["id"] if safe_match else None,
         "student_name":matched_student["name"] if safe_match else None,"confidence":confidence if safe_match else None,
