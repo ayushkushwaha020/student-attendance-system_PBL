@@ -1873,7 +1873,7 @@ def recognition_review():
       <span id="faceRebuildStatus" class="muted small" style="margin-left:10px">Build FaceNet + InsightFace embeddings for previously saved scans.</span>
       </div></div><div class="card"><div class="table"><table><tr><th>Time</th><th>Camera</th><th>Student</th><th>Result</th><th>Confidence</th><th>Review</th></tr>{rows or "<tr><td colspan=6>No recognition events.</td></tr>"}</table></div></div>
       <script>
-      document.getElementById("rebuildFaceEmbeddings").onclick=async function(){const b=this,s=document.getElementById("faceRebuildStatus");b.disabled=true;s.textContent="Processing saved face scans…";try{const r=await fetch("/api/face-embeddings/rebuild",{method:"POST"});const d=await r.json();s.textContent=d.message+" Saved: "+d.saved+", skipped: "+d.skipped+", remaining: "+d.remaining;b.disabled=!!d.remaining;}catch(e){s.textContent="Could not reach the inference service. Please retry when it is online.";b.disabled=false;}};
+      document.getElementById("rebuildFaceEmbeddings").onclick=async function(){{const b=this,s=document.getElementById("faceRebuildStatus");b.disabled=true;s.textContent="Processing saved face scans…";try{{const r=await fetch("/api/face-embeddings/rebuild",{{method:"POST"}});const d=await r.json();s.textContent=d.message+" Saved: "+d.saved+", skipped: "+d.skipped+", remaining: "+d.remaining;b.disabled=!!d.remaining;}}catch(e){{s.textContent="Could not reach the inference service. Please retry when it is online.";b.disabled=false;}}}};
       </script>'''
     return page("Recognition Review",body)
 
