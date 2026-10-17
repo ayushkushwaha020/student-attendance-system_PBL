@@ -1,5 +1,5 @@
 from flask import Flask, request, redirect, url_for, session, render_template_string, flash, send_file
-import sqlite3, os, json, csv, io, base64, re, smtplib
+import sqlite3, os, json, csv, io, base64, re, smtplib, urllib.request, urllib.error
 from email.message import EmailMessage
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -664,6 +664,34 @@ def student_profile():
     </script>'''
     return page("Edit Profile",body)
 
+
+def call_face_inference(endpoint, payload, timeout=25):
+    base=os.environ.get("FACE_INFERENCE_URL","").strip().rstrip("/")
+    api_key=os.environ.get("FACE_INFERENCE_API_KEY","")
+    if not base or not api_key:
+        raise RuntimeError("Face inference service is not configured.")
+    body=json.dumps(payload,separators=(",",":")).encode("utf-8")
+    req=urllib.request.Request(base+endpoint,data=body,headers={"Content-Type":"application/json","X-API-Key":api_key},method="POST")
+    try:
+        with urllib.request.urlopen(req,timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail=exc.read().decode("utf-8","replace")[:300]
+        raise RuntimeError("Face inference service returned HTTP "+str(exc.code)+": "+detail) from exc
+    except Exception as exc:
+        raise RuntimeError("Face inference service is unavailable: "+str(exc)) from exc
+
+def save_face_embeddings(student_id, profile_id, face):
+    if not face.get("insightface") or not face.get("facenet"):
+        raise ValueError("The inference service did not return both embeddings.")
+    c=db()
+    c.execute("""insert into face_embeddings(student_id,face_profile_id,insightface_embedding,facenet_embedding)
+        values(?,?,?,?) on conflict(face_profile_id) do update set
+        student_id=excluded.student_id,insightface_embedding=excluded.insightface_embedding,
+        facenet_embedding=excluded.facenet_embedding""",
+        (student_id,profile_id,json.dumps(face["insightface"]),json.dumps(face["facenet"])))
+    c.commit(); c.close()
+
 @app.route("/student/face",methods=["POST"])
 @need("STUDENT")
 def student_face():
@@ -674,8 +702,22 @@ def student_face():
         _,payload=image.split(",",1); raw=base64.b64decode(payload,validate=True)
         if len(raw)>2_500_000: return {{"ok":False,"message":"Image is too large. Please retry."}},400
     except Exception: return {{"ok":False,"message":"Could not read the captured image."}},400
-    c=db(); c.execute("insert into student_face_profiles(student_id,image_data,captured_at,is_active) values(?,?,CURRENT_TIMESTAMP,1)",(u["student_id"],image)); c.commit(); c.close()
-    return {{"ok":True,"message":"New face enrollment saved. Existing face scans were kept."}}
+    # Preserve captured images even if inference is temporarily unavailable.
+    c=db()
+    c.execute("insert into student_face_profiles(student_id,image_data,captured_at,is_active) values(?,?,CURRENT_TIMESTAMP,1)",(u["student_id"],image))
+    profile_id=c.execute("select last_insert_rowid()").fetchone()[0]
+    c.commit(); c.close()
+    try:
+        embedded=call_face_inference("/embed",{"image":image},timeout=35)
+        faces=embedded.get("faces",[])
+        if not embedded.get("ok") or len(faces)!=1:
+            return {"ok":True,"message":"Face image saved, but no single clear face was found. Please scan again in good lighting."}
+        save_face_embeddings(u["student_id"],profile_id,faces[0])
+        audit("FACE_ENROLLMENT","student_face_profile",profile_id,"Face scan enrolled with FaceNet + InsightFace embeddings")
+        return {"ok":True,"message":"Face scan saved and FaceNet + InsightFace embeddings created. Existing scans were kept."}
+    except Exception as exc:
+        app.logger.warning("Face embedding pending for profile %s: %s",profile_id,exc)
+        return {"ok":True,"message":"Face image saved, but its recognition embedding is pending because the inference service is not ready. Existing scans were kept."}
 
 @app.route("/student/attendance")
 @need("STUDENT")
@@ -1503,7 +1545,7 @@ def upgrade_schema():
     c.executescript("""
     CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY, user_id INTEGER, action TEXT, entity TEXT, entity_id INTEGER, detail TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS recognition_events(id INTEGER PRIMARY KEY, camera_id INTEGER, student_id INTEGER, lecture_id INTEGER, captured_at TEXT DEFAULT CURRENT_TIMESTAMP, confidence REAL, result TEXT, snapshot_path TEXT, review_status TEXT DEFAULT 'PENDING');
-    CREATE TABLE IF NOT EXISTS import_jobs(id INTEGER PRIMARY KEY, filename TEXT, doc_type TEXT, status TEXT, preview TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, imported_by INTEGER);
+    CREATE TABLE IF NOT EXISTS import_jobs(id INTEGER PRIMARY KEY, filename TEXT, doc_type TEXT, status TEXT, preview TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, imported_by INTEGER);\n    CREATE TABLE IF NOT EXISTS face_embeddings(id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, face_profile_id INTEGER NOT NULL UNIQUE, insightface_embedding TEXT NOT NULL, facenet_embedding TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     """)
     c.commit(); c.close()
 
@@ -1781,6 +1823,99 @@ def recognition_review():
     c=db(); events=c.execute("select r.*,s.name student_name,c.camera_name from recognition_events r left join students s on s.id=r.student_id left join cameras c on c.id=r.camera_id order by r.id desc limit 100").fetchall(); c.close()
     rows="".join(f'<tr><td>{x["captured_at"]}</td><td>{x["camera_name"] or "—"}</td><td>{x["student_name"] or "UNKNOWN"}</td><td>{x["result"]}</td><td>{(str(round(x["confidence"],1))+"%") if x["confidence"] is not None else "—"}</td><td>{x["review_status"]}</td></tr>' for x in events)
     return page("Recognition Review",f'<div class="hero"><div><span class="pill">REVIEW QUEUE</span><h2>Recognition events</h2><p class="muted">Uncertain matches stay UNKNOWN until reviewed.</p></div></div><div class="card"><div class="table"><table><tr><th>Time</th><th>Camera</th><th>Student</th><th>Result</th><th>Confidence</th><th>Review</th></tr>{rows or "<tr><td colspan=6>No recognition events.</td></tr>"}</table></div></div>')
+
+
+@app.route("/api/recognize-frame",methods=["POST"])
+@need("ADMIN")
+def recognize_frame():
+    data=request.get_json(silent=True) or {}
+    image=data.get("image","")
+    camera_id=data.get("camera_id")
+    lecture_id=data.get("lecture_id")
+    if not isinstance(image,str) or not image.startswith("data:image/"):
+        return {"ok":False,"result":"UNKNOWN","message":"A valid camera frame is required."},400
+    try:
+        raw=base64.b64decode(image.split(",",1)[1],validate=True)
+        if len(raw)>2_000_000:
+            return {"ok":False,"result":"UNKNOWN","message":"Camera frame is too large."},413
+    except Exception:
+        return {"ok":False,"result":"UNKNOWN","message":"Camera frame could not be decoded."},400
+    c=db()
+    gallery_rows=c.execute("""select e.student_id,s.name,e.insightface_embedding,e.facenet_embedding
+        from face_embeddings e join students s on s.id=e.student_id order by e.student_id,e.id""").fetchall()
+    gallery=[]
+    for row in gallery_rows:
+        try:
+            gallery.append({"student_id":int(row["student_id"]),"name":row["name"],
+                "insightface":json.loads(row["insightface_embedding"]),
+                "facenet":json.loads(row["facenet_embedding"])})
+        except Exception:
+            continue
+    try:
+        result=call_face_inference("/recognize",{"image":image,"gallery":gallery},timeout=30)
+    except Exception as exc:
+        c.close()
+        app.logger.warning("Face recognition service failed: %s",exc)
+        return {"ok":False,"result":"UNKNOWN","message":"Recognition service is unavailable. No attendance was changed."},503
+    matched_sid=result.get("student_id") if result.get("result")=="MATCH" else None
+    confidence=float(result.get("confidence") or 0)
+    matched_student=c.execute("select id,name,course,section,group_name from students where id=?",(matched_sid,)).fetchone() if matched_sid else None
+    safe_match=bool(matched_student and result.get("models_agree") and confidence>=85)
+    final_result="MATCH" if safe_match else "UNKNOWN"
+    attendance_marked=False
+    attendance_message="Recognition only; select an active lecture to mark attendance."
+    if safe_match and lecture_id:
+        lec=c.execute("""select l.*,s.code subject_code,s.name subject_name from lectures l
+            join subjects s on s.id=l.subject_id where l.id=?""",(lecture_id,)).fetchone()
+        now=datetime.now(IST)
+        try:
+            start_dt=datetime.fromisoformat(lec["lecture_date"]+"T"+(lec["start_time"] or "00:00")).replace(tzinfo=IST) if lec else None
+            end_dt=datetime.fromisoformat(lec["lecture_date"]+"T"+(lec["end_time"] or "23:59")).replace(tzinfo=IST) if lec else None
+        except Exception:
+            start_dt=end_dt=None
+        group_ok=bool(lec and (not lec["group_name"] or not matched_student["group_name"] or lec["group_name"]==matched_student["group_name"]))
+        class_ok=bool(lec and lec["course"]==matched_student["course"] and lec["section"]==matched_student["section"])
+        if lec and start_dt and end_dt and lec["lecture_date"]==now.date().isoformat() and start_dt<=now<=end_dt and group_ok and class_ok:
+            c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
+                values(?,?,?,?,?,?) on conflict(student_id,lecture_id,attendance_date) do update set
+                subject_id=excluded.subject_id,source='AI_RECOGNITION',marked_by=excluded.marked_by""",
+                (matched_student["id"],lec["subject_id"],lec["id"],lec["lecture_date"],"AI_RECOGNITION",me()["id"]))
+            attendance_marked=True
+            attendance_message="Attendance marked for "+lec["subject_name"]+"."
+        else:
+            attendance_message="Identity matched, but no matching active lecture was found. Attendance was not changed."
+    c.execute("insert into recognition_events(camera_id,student_id,lecture_id,confidence,result,review_status) values(?,?,?,?,?,?)",
+        (camera_id,matched_student["id"] if safe_match else None,lecture_id if attendance_marked else None,confidence if safe_match else None,final_result,"AUTO_MATCH" if attendance_marked else "PENDING"))
+    event_id=c.execute("select last_insert_rowid()").fetchone()[0]
+    c.commit(); c.close()
+    if attendance_marked:
+        audit("AI_RECOGNITION_ATTENDANCE","attendance",event_id,"FaceNet + InsightFace matched "+matched_student["name"]+"; "+attendance_message)
+    return {"ok":True,"result":final_result,"student_id":matched_student["id"] if safe_match else None,
+        "student_name":matched_student["name"] if safe_match else None,"confidence":confidence if safe_match else None,
+        "attendance_marked":attendance_marked,"message":attendance_message,"checks":result.get("checks",{})}
+
+
+@app.route("/api/face-embeddings/rebuild",methods=["POST"])
+@need("ADMIN")
+def rebuild_face_embeddings():
+    c=db()
+    rows=c.execute("""select id,student_id,image_data from student_face_profiles
+        where is_active=1 and id not in (select face_profile_id from face_embeddings) order by id""").fetchall()
+    c.close()
+    saved=0; skipped=0; errors=[]
+    for row in rows:
+        try:
+            out=call_face_inference("/embed",{"image":row["image_data"]},timeout=35)
+            faces=out.get("faces",[])
+            if out.get("ok") and len(faces)==1:
+                save_face_embeddings(row["student_id"],row["id"],faces[0]); saved+=1
+            else:
+                skipped+=1
+        except Exception as exc:
+            errors.append(str(exc)[:160]); break
+    audit("REBUILD_FACE_EMBEDDINGS","student_face_profile",None,"Created "+str(saved)+" embeddings; skipped "+str(skipped))
+    return {"ok":not errors,"saved":saved,"skipped":skipped,"remaining":max(0,len(rows)-saved-skipped),
+        "message":errors[0] if errors else "Existing face scans processed."}
 
 @app.route("/api/recognition",methods=["POST"])
 @need("ADMIN")
