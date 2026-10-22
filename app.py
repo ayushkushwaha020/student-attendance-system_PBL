@@ -683,14 +683,16 @@ def call_face_inference(endpoint, payload, timeout=25):
         raise RuntimeError("Face inference service is unavailable: "+str(exc)) from exc
 
 def save_face_embeddings(student_id, profile_id, face):
-    if not face.get("insightface") or not face.get("facenet"):
-        raise ValueError("The inference service did not return both embeddings.")
+    if not face.get("insightface"):
+        raise ValueError("The inference service did not return an InsightFace embedding.")
+    # Preserve compatibility with existing databases whose legacy FaceNet column is NOT NULL.
+    # The placeholder is never used by the single-model recognition path.
     c=db()
     c.execute("""insert into face_embeddings(student_id,face_profile_id,insightface_embedding,facenet_embedding)
         values(?,?,?,?) on conflict(face_profile_id) do update set
         student_id=excluded.student_id,insightface_embedding=excluded.insightface_embedding,
         facenet_embedding=excluded.facenet_embedding""",
-        (student_id,profile_id,json.dumps(face["insightface"]),json.dumps(face["facenet"])))
+        (student_id,profile_id,json.dumps(face["insightface"]),"[]"))
     c.commit(); c.close()
 
 @app.route("/student/face",methods=["POST"])
@@ -714,8 +716,8 @@ def student_face():
         if not embedded.get("ok") or len(faces)!=1:
             return {"ok":True,"message":"Face image saved, but no single clear face was found. Please scan again in good lighting."}
         save_face_embeddings(u["student_id"],profile_id,faces[0])
-        audit("FACE_ENROLLMENT","student_face_profile",profile_id,"Face scan enrolled with FaceNet + InsightFace embeddings")
-        return {"ok":True,"message":"Face scan saved and FaceNet + InsightFace embeddings created. Existing scans were kept."}
+        audit("FACE_ENROLLMENT","student_face_profile",profile_id,"Face scan enrolled with InsightFace embeddings")
+        return {"ok":True,"message":"Face scan saved and InsightFace embeddings created. Existing scans were kept."}
     except Exception as exc:
         app.logger.warning("Face embedding pending for profile %s: %s",profile_id,exc)
         return {"ok":True,"message":"Face image saved, but its recognition embedding is pending because the inference service is not ready. Existing scans were kept."}
@@ -1926,7 +1928,7 @@ def recognition_review():
     body=f'''<div class="hero"><div><span class="pill">REVIEW QUEUE</span><h2>Recognition events</h2>
       <p class="muted">Uncertain matches stay UNKNOWN until reviewed.</p>
       <button class="btn primary" id="rebuildFaceEmbeddings" type="button">Prepare Existing Face Scans</button>
-      <span id="faceRebuildStatus" class="muted small" style="margin-left:10px">Build FaceNet + InsightFace embeddings for previously saved scans.</span>
+      <span id="faceRebuildStatus" class="muted small" style="margin-left:10px">Build InsightFace embeddings for previously saved scans.</span>
       </div></div><div class="card"><div class="table"><table><tr><th>Time</th><th>Camera</th><th>Student</th><th>Result</th><th>Confidence</th><th>Review</th></tr>{rows or "<tr><td colspan=6>No recognition events.</td></tr>"}</table></div></div>
       <script>
       document.getElementById("rebuildFaceEmbeddings").onclick=async function(){{const b=this,s=document.getElementById("faceRebuildStatus");b.disabled=true;s.textContent="Processing saved face scans…";try{{const r=await fetch("/api/face-embeddings/rebuild",{{method:"POST"}});const d=await r.json();s.textContent=d.message+" Saved: "+d.saved+", skipped: "+d.skipped+", remaining: "+d.remaining;b.disabled=!!d.remaining;}}catch(e){{s.textContent="Could not reach the inference service. Please retry when it is online.";b.disabled=false;}}}};
@@ -1953,14 +1955,13 @@ def recognize_frame():
     except Exception:
         return {"ok":False,"result":"UNKNOWN","message":"Camera frame could not be decoded."},400
     c=db()
-    gallery_rows=c.execute("""select e.student_id,s.name,e.insightface_embedding,e.facenet_embedding
+    gallery_rows=c.execute("""select e.student_id,s.name,e.insightface_embedding
         from face_embeddings e join students s on s.id=e.student_id order by e.student_id,e.id""").fetchall()
     gallery=[]
     for row in gallery_rows:
         try:
             gallery.append({"student_id":int(row["student_id"]),"name":row["name"],
-                "insightface":json.loads(row["insightface_embedding"]),
-                "facenet":json.loads(row["facenet_embedding"])})
+                "insightface":json.loads(row["insightface_embedding"])})
         except Exception:
             continue
     try:
@@ -1972,7 +1973,7 @@ def recognize_frame():
     matched_sid=result.get("student_id") if result.get("result")=="MATCH" else None
     confidence=float(result.get("confidence") or 0)
     matched_student=c.execute("select id,name,course,section,group_name from students where id=?",(matched_sid,)).fetchone() if matched_sid else None
-    safe_match=bool(matched_student and result.get("models_agree"))
+    safe_match=bool(matched_student and result.get("result")=="MATCH")
     final_result="MATCH" if safe_match else "UNKNOWN"
     attendance_marked=False
     demo_marked=False
@@ -2017,9 +2018,9 @@ def recognize_frame():
     event_id=c.execute("select last_insert_rowid()").fetchone()[0]
     c.commit(); c.close()
     if attendance_marked and should_audit_attendance:
-        audit("AI_RECOGNITION_ATTENDANCE","attendance",event_id,"FaceNet + InsightFace matched "+matched_student["name"]+"; "+attendance_message)
+        audit("AI_RECOGNITION_ATTENDANCE","attendance",event_id,"InsightFace matched "+matched_student["name"]+"; "+attendance_message)
     if demo_marked:
-        audit("DEMO_ATTENDANCE_MARKED","demo_attendance",event_id,"FaceNet + InsightFace matched "+matched_student["name"]+"; "+attendance_message)
+        audit("DEMO_ATTENDANCE_MARKED","demo_attendance",event_id,"InsightFace matched "+matched_student["name"]+"; "+attendance_message)
     return {"ok":True,"result":final_result,"student_id":matched_student["id"] if safe_match else None,
         "student_name":matched_student["name"] if safe_match else None,"confidence":confidence if safe_match else None,
         "attendance_marked":attendance_marked,"demo_marked":demo_marked,"message":attendance_message,"checks":result.get("checks",{})}
@@ -2029,13 +2030,14 @@ def recognize_frame():
 @need("ADMIN")
 def rebuild_face_embeddings():
     c=db()
+    # Rebuild all active profiles because embeddings from the old model may be incompatible.
     rows=c.execute("""select id,student_id,image_data from student_face_profiles
-        where is_active=1 and id not in (select face_profile_id from face_embeddings) order by id""").fetchall()
+        where is_active=1 order by id""").fetchall()
     c.close()
     saved=0; skipped=0; errors=[]
     for row in rows:
         try:
-            out=call_face_inference("/embed",{"image":row["image_data"]},timeout=35)
+            out=call_face_inference("/embed",{"image":row["image_data"]},timeout=120)
             faces=out.get("faces",[])
             if out.get("ok") and len(faces)==1:
                 save_face_embeddings(row["student_id"],row["id"],faces[0]); saved+=1
