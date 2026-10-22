@@ -781,16 +781,20 @@ def cameras():
     now_dt=datetime.now(IST)
     today_str=now_dt.date().isoformat()
     now_hm=now_dt.strftime("%H:%M")
+    # Include all non-cancelled lectures so Demo Mode remains testable outside
+    # today's timetable. Real Attendance still validates active lecture rules in
+    # its own mode; demo records are isolated in demo_attendance.
     active_rows=c.execute("""select l.id,l.start_time,l.end_time,l.group_name,l.status,l.lecture_date,l.course,l.section,s.code,s.name
         from lectures l join subjects s on s.id=l.subject_id
-        where l.lecture_date=? and upper(coalesce(l.status,'SCHEDULED')) not in ('CANCELLED','CANCELED')
-        order by l.start_time""",(today_str,)).fetchall()
+        where upper(coalesce(l.status,'SCHEDULED')) not in ('CANCELLED','CANCELED')
+        order by case when l.lecture_date=? then 0 else 1 end, l.lecture_date desc, l.start_time""",(today_str,)).fetchall()
     active_lectures=[]
     for x in active_rows:
-        if not x["start_time"] or not x["end_time"]:
-            continue
-        is_active=x["start_time"]<=now_hm<=x["end_time"]
-        label=x["code"]+" · "+x["name"]+" ("+x["start_time"]+"–"+x["end_time"]+")"
+        is_active=bool(x["lecture_date"]==today_str and x["start_time"] and x["end_time"] and x["start_time"]<=now_hm<=x["end_time"])
+        time_label=(x["start_time"]+"–"+x["end_time"]) if x["start_time"] and x["end_time"] else "time not set"
+        label=x["code"]+" · "+x["name"]+" ("+time_label+")"
+        if x["lecture_date"]:
+            label+=" · "+x["lecture_date"]
         if x["group_name"]:
             label+=" · "+x["group_name"]
         label+=" · "+("LIVE NOW" if is_active else "DEMO ONLY")
@@ -966,6 +970,12 @@ def cameras():
     }
     attendanceLecture.addEventListener("change",updateLectureStatus);
     attendanceMode.addEventListener("change",updateLectureStatus);
+    // Select the first available lecture automatically for Demo Mode, avoiding
+    // an empty selector that silently prevents demo attendance from being saved.
+    if(attendanceLecture.options.length>1 && !attendanceLecture.value){
+      attendanceLecture.selectedIndex=1;
+    }
+
 
     function renderCameraPicker(){
       cameraPickerList.innerHTML="";
