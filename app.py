@@ -1980,20 +1980,12 @@ def recognize_frame():
     should_audit_attendance=False
     attendance_message="Recognition only; choose Demo Mode or an active lecture to record attendance."
     if safe_match and lecture_id and attendance_mode in ("demo","real"):
+        # Teacher-demo branch: allow any selected existing lecture, regardless of its date,
+        # time window, or whether the student's class/group matches the lecture.
         lec=c.execute("""select l.*,s.code subject_code,s.name subject_name from lectures l
             join subjects s on s.id=l.subject_id where l.id=?""",(lecture_id,)).fetchone()
-        now=datetime.now(IST)
-        try:
-            start_dt=datetime.fromisoformat(lec["lecture_date"]+"T"+(lec["start_time"] or "00:00")).replace(tzinfo=IST) if lec else None
-            end_dt=datetime.fromisoformat(lec["lecture_date"]+"T"+(lec["end_time"] or "23:59")).replace(tzinfo=IST) if lec else None
-        except Exception:
-            start_dt=end_dt=None
-        group_ok=bool(lec and (not lec["group_name"] or not matched_student["group_name"] or lec["group_name"]==matched_student["group_name"]))
-        class_ok=bool(lec and lec["course"]==matched_student["course"] and lec["section"]==matched_student["section"])
-        lecture_today=bool(lec and lec["lecture_date"]==now.date().isoformat())
-        lecture_active=bool(lecture_today and start_dt and end_dt and start_dt<=now<=end_dt)
-        lecture_usable=bool(lec and lecture_today and start_dt and end_dt and str(lec["status"] or "").upper() not in ("CANCELLED","CANCELED"))
-        if group_ok and class_ok and lecture_active and attendance_mode=="real":
+        lecture_usable=bool(lec and str(lec["status"] or "").upper() not in ("CANCELLED","CANCELED"))
+        if lecture_usable and attendance_mode=="real":
             existing_attendance=c.execute("select source from attendance where student_id=? and lecture_id=? and attendance_date=?",(matched_student["id"],lec["id"],lec["lecture_date"])).fetchone()
             should_audit_attendance=not existing_attendance or existing_attendance["source"]!="AI_RECOGNITION"
             c.execute("""insert into attendance(student_id,subject_id,lecture_id,attendance_date,source,marked_by)
@@ -2001,8 +1993,8 @@ def recognize_frame():
                 subject_id=excluded.subject_id,source='AI_RECOGNITION',marked_by=excluded.marked_by""",
                 (matched_student["id"],lec["subject_id"],lec["id"],lec["lecture_date"],"AI_RECOGNITION",me()["id"]))
             attendance_marked=True
-            attendance_message="Real attendance marked for "+lec["subject_name"]+"."
-        elif group_ok and class_ok and lecture_usable and attendance_mode=="demo":
+            attendance_message="DEMO VERSION: attendance marked for "+lec["subject_name"]+" (lecture time/class checks bypassed)."
+        elif lecture_usable and attendance_mode=="demo":
             c.execute("""insert into demo_attendance(student_id,subject_id,lecture_id,lecture_date,marked_by,camera_id,confidence)
                 values(?,?,?,?,?,?,?) on conflict(student_id,lecture_id,lecture_date) do update set
                 marked_at=CURRENT_TIMESTAMP,marked_by=excluded.marked_by,camera_id=excluded.camera_id,confidence=excluded.confidence""",
@@ -2010,9 +2002,9 @@ def recognize_frame():
             demo_marked=True
             attendance_message="DEMO attendance saved separately for "+lec["subject_name"]+". Real attendance was not changed."
         elif attendance_mode=="real":
-            attendance_message="Real attendance was not changed: the lecture must be active now and match the student's class."
+            attendance_message="Attendance not marked: select an existing non-cancelled lecture."
         elif attendance_mode=="demo":
-            attendance_message="Demo record not saved: choose today's scheduled lecture for the student's class. Real attendance was not changed."
+            attendance_message="Demo record not saved: select an existing non-cancelled lecture. Real attendance was not changed."
     c.execute("insert into recognition_events(camera_id,student_id,lecture_id,confidence,result,review_status) values(?,?,?,?,?,?)",
         (camera_id,matched_student["id"] if safe_match else None,lecture_id if (attendance_marked or demo_marked) else None,confidence if safe_match else None,final_result,"DEMO_MODE" if demo_marked else ("AUTO_MATCH" if attendance_marked else "PENDING")))
     event_id=c.execute("select last_insert_rowid()").fetchone()[0]
