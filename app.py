@@ -842,6 +842,7 @@ def cameras():
       .camera-picker-item.active{border-color:#6e82ff;background:#172b4d;color:#9eb0ff}
       .live-workspace{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:0;min-height:0;flex:1;overflow:hidden}.attendance-controls{padding:16px;border-left:1px solid #223752;background:#0a1727;display:flex;flex-direction:column;gap:12px;overflow:auto}.attendance-controls h3{margin:0;font-size:14px}.attendance-controls p{font-size:11px;line-height:1.5;color:#8291aa;margin:0}.lecture-select{width:100%;box-sizing:border-box;padding:11px;border:1px solid #405779;border-radius:10px;background:#0b1728;color:#edf3ff;font-size:12px}.lecture-status{padding:10px;border:1px solid #304565;border-radius:10px;background:#10213a;color:#b9c9df;font-size:11px;line-height:1.5}.feed-grid{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;overflow:auto;min-height:0;align-content:start}
       .feed-tile{position:relative;min-height:235px;aspect-ratio:16/10;background:#02070d;border:1px solid #263c59;border-radius:14px;overflow:hidden}
+      .feed-card{min-width:0;display:flex;flex-direction:column;gap:9px}.demo-attendance-panel{border:1px solid #2c604f;background:#0d2925;border-radius:12px;padding:11px 12px;color:#bcebd8}.demo-attendance-title{display:flex;justify-content:space-between;font-size:11px;font-weight:950}.demo-attendance-count{font-size:10px;color:#80d7b2}.demo-attendance-empty{font-size:11px;color:#8291aa;padding:8px 0}.demo-attendance-row{display:flex;gap:9px;padding:9px 0;border-top:1px solid #23473f}.demo-attendance-check{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#174b3b;color:#9ff2cf}.demo-attendance-name{font-size:12px;font-weight:900;color:#effff7}.demo-attendance-meta{font-size:10px;color:#9abdb1;line-height:1.5;margin-top:3px}
       .feed-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#02070d}
       .feed-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       .feed-label{position:absolute;left:10px;top:10px;z-index:3;padding:6px 9px;border-radius:8px;background:rgba(3,10,20,.72);border:1px solid rgba(125,153,205,.35);font-size:10px;font-weight:900;color:#edf4ff}
@@ -1050,9 +1051,15 @@ def cameras():
 
     function makeFeed(camera){
       const id=String(camera.id);
+      const feedCard=document.createElement("div");
+      feedCard.className="feed-card";
       const tile=document.createElement("div");
       tile.className="feed-tile";
       tile.dataset.cameraId=id;
+      const demoPanel=document.createElement("section");
+      demoPanel.className="demo-attendance-panel";
+      demoPanel.innerHTML='<div class="demo-attendance-title"><span>DEMO ATTENDANCE · THIS CAMERA</span><span class="demo-attendance-count">0 present</span></div><div class="demo-attendance-empty">Select a lecture and wait for a verified match. Real attendance remains unchanged.</div>';
+      const demoRows=new Map();
       const label=document.createElement("div");
       label.className="feed-label";
       label.textContent=camera.name;
@@ -1068,8 +1075,9 @@ def cameras():
       const canvas=document.createElement("canvas");
       canvas.className="feed-overlay";
       tile.append(label,count,status,video,canvas);
-      feedGrid.appendChild(tile);
-      const item={camera,tile,video,canvas,ctx:canvas.getContext("2d"),count,status,stream:null,recognitionTimer:null,recognitionBusy:false};
+      feedCard.append(tile,demoPanel);
+      feedGrid.appendChild(feedCard);
+      const item={camera,tile,feedCard,demoPanel,demoRows,video,canvas,ctx:canvas.getContext("2d"),count,status,stream:null,recognitionTimer:null,recognitionBusy:false};
       active.set(camera.id,item);
 
       if(camera.local){
@@ -1110,6 +1118,18 @@ def cameras():
           const wasMarked=out.demo_marked?"DEMO PRESENT · ":(out.attendance_marked?"PRESENT · ":"MATCHED · ");
           item.status.textContent=wasMarked+out.student_name+(out.confidence?" · "+out.confidence+"%":"");
           item.status.style.color=(out.attendance_marked||out.demo_marked)?"#80d7b2":"#a9c4ff";
+          if(out.demo_marked){
+            const lectureLabel=attendanceLecture.options[attendanceLecture.selectedIndex]?.textContent||"Selected lecture";
+            const key=String(out.student_id||out.student_name)+"-"+String(attendanceLecture.value||"");
+            const now=new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+            const row=document.createElement("div"); row.className="demo-attendance-row";
+            row.innerHTML='<span class="demo-attendance-check">✓</span><div><div class="demo-attendance-name">'+escapeHtml(out.student_name)+' — PRESENT</div><div class="demo-attendance-meta">'+escapeHtml(lectureLabel)+'<br>Marked at '+escapeHtml(now)+(out.confidence?' · Match '+escapeHtml(out.confidence)+'%':'')+'</div></div>';
+            const existing=item.demoRows.get(key); if(existing)existing.remove();
+            item.demoRows.set(key,row);
+            const empty=item.demoPanel.querySelector(".demo-attendance-empty"); if(empty)empty.remove();
+            item.demoPanel.querySelector(".demo-attendance-count").textContent=item.demoRows.size+" present";
+            item.demoPanel.appendChild(row);
+          }
         }else if(!out.ok){item.status.textContent=out.message||"Recognition service unavailable";item.status.style.color="#ffb15e";}
         else{item.status.textContent=out.message||"No verified identity — UNKNOWN";item.status.style.color="#aebdd2";}
       }catch(error){console.warn("Recognition request failed",error);}
@@ -1122,7 +1142,7 @@ def cameras():
       if(item.recognitionTimer)clearInterval(item.recognitionTimer);
       if(item.stream) item.stream.getTracks().forEach(t=>t.stop());
       item.video.pause();item.video.srcObject=null;item.video.removeAttribute("src");item.video.load();
-      item.tile.remove();
+      item.feedCard.remove();
       active.delete(cameraId);
       syncCounts();
       if(!active.size){
