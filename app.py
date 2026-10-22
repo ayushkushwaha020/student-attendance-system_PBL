@@ -1086,7 +1086,7 @@ def cameras():
         status.textContent="No browser-compatible stream configured.";
       }
       getDetector().catch(()=>{});
-      item.recognitionTimer=setInterval(()=>recognizeFrame(item),5000);
+      item.recognitionTimer=setInterval(()=>recognizeFrame(item),12000);
       syncCounts();
       startDetectionLoop();
     }
@@ -1964,7 +1964,7 @@ def recognize_frame():
         except Exception:
             continue
     try:
-        result=call_face_inference("/recognize",{"image":image,"gallery":gallery},timeout=30)
+        result=call_face_inference("/recognize",{"image":image,"gallery":gallery},timeout=120)
     except Exception as exc:
         c.close()
         app.logger.warning("Face recognition service failed: %s",exc)
